@@ -1,0 +1,36 @@
+add_subdirectory(event/forge)
+
+add_library(
+	analysis_core
+	analysis/cli.cpp
+	analysis/config.cpp
+	analysis/dssd.cpp
+	analysis/file_name.cpp
+	analysis/geometry.cpp
+	analysis/ppac.cpp
+	analysis/t0.cpp
+	analysis/tree.cpp
+	analysis/event/dssd_merge_event.cpp
+	analysis/event/dssd_normalized_event.cpp
+	analysis/event/ppac_hit_event.cpp
+	analysis/event/ppac_track_event.cpp
+	analysis/event/t0_track_event.cpp
+)
+target_include_directories(
+	analysis_core
+	PUBLIC
+	${PROJECT_SOURCE_DIR}/src/brill
+	${ROOT_INCLUDE_DIRS}
+)
+target_link_libraries(
+	analysis_core
+	PUBLIC
+	ppac_event
+	dssd_event
+	silicon_event
+	ROOT::Core
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+	ROOT::Graf
+)
