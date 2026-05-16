@@ -169,17 +169,17 @@ int main(int argc, char **argv) {
 	glimmer::SetupInput(&chain1, event_s, "s.");
 
 	TString output_path = TString::Format(
-		"%s/t0_pid_%s%04d-%04d.root",
+		"%s/t0_pid_%s%04d_%04d.root",
 		brill::JoinPath(config.workspace, config.paths.estimate).c_str(),
 		trigger_infix.c_str(),
 		run,
 		end_run
 	);
 	TFile opf(output_path, "recreate");
-	TH2F d1d2_pid("d1d2", "D1-D2 PID", 3000, 0.0, 60000.0, 3000, 0.0, 60000.0);
-	TH2F d2d3_pid("d2d3", "D2-D3 PID", 3000, 0.0, 60000.0, 3000, 0.0, 60000.0);
-	TH2F d3d4_pid("d3d4", "D3-D4 PID", 3000, 0.0, 60000.0, 3000, 0.0, 60000.0);
-	TH2F d4t0s_pid("d4t0s", "D4-T0S PID", 3000, 0.0, 60000.0, 3000, 0.0, 60000.0);
+	TH2F d1d2_pid("d1d2", "D1-D2 PID", 5000, 0.0, 60000.0, 5000, 0.0, 30000.0);
+	TH2F d2d3_pid("d2d3", "D2-D3 PID", 5000, 0.0, 50000.0, 5000, 0.0, 80000.0);
+	TH2F d3d4_pid("d3d4", "D3-D4 PID", 5000, 0.0, 45000.0, 5000, 0.0, 45000.0);
+	TH2F d4s_pid("d4s", "D4-S PID", 5000, 0.0, 80000.0, 5000, 0.0, 45000.0);
 
 	const long long total = chain1.GetEntries();
 	long long last_percentage = -1;
@@ -196,7 +196,7 @@ int main(int argc, char **argv) {
 		FillPairPid(event1, event2, config.track.d2d1_window, d1d2_pid);
 		FillPairPid(event2, event3, config.track.d3d2_window, d2d3_pid);
 		FillPairPid(event3, event4, config.track.d4d3_window, d3d4_pid);
-		FillSiliconPid(event4, event_s, d4t0s_pid);
+		FillSiliconPid(event4, event_s, d4s_pid);
 	}
 	std::printf("\b\b\b\b100%%\n");
 
@@ -204,7 +204,7 @@ int main(int argc, char **argv) {
 	d1d2_pid.Write();
 	d2d3_pid.Write();
 	d3d4_pid.Write();
-	d4t0s_pid.Write();
+	d4s_pid.Write();
 	opf.Close();
 
 	return 0;

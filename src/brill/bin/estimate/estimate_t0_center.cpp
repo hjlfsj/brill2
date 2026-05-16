@@ -72,8 +72,8 @@ void FillStripOffsets(
 ) {
 	for (int i = 0; i < left.num; ++i) {
 		for (int j = 0; j < right.num; ++j) {
-			hist_x.Fill(left.x[i] - right.x[j]);
-			hist_y.Fill(left.y[i] - right.y[j]);
+			hist_x.Fill(right.x[i] - left.x[j]);
+			hist_y.Fill(right.y[i] - left.y[j]);
 		}
 	}
 }

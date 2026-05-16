@@ -73,6 +73,6 @@ center_y_mm = 0.0
 z_mm = 0.0
 
 [track]
-d2d1_window = [-2.0, 4.0]
+d2d1_window = [-4.0, 2.0]
 d3d2_window = [-4.0, 4.0]
 d4d3_window = [-5.0, 5.0]
