@@ -8,6 +8,7 @@ namespace glimmer {
 
 struct PpacEvent {
 	int flag;
+	bool valid[15];
 	double time[15];
 	int energy[15];
 	// bool cv[15];

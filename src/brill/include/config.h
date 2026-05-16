@@ -4,13 +4,10 @@
 #include <string>
 #include <vector>
 
-namespace glimmer {
+namespace brill {
 
 constexpr int kMaxPpac = 3;
 constexpr int kMaxStrips = 128;
-constexpr int kMaxDssdHit = 8;
-constexpr int kMaxTrackHit = 8;
-constexpr int kT0LayerCount = 4;
 
 struct SquareDetectorConfig {
 	std::string name;
@@ -22,7 +19,7 @@ struct SquareDetectorConfig {
 	double center_x_mm = 0.0;
 	double center_y_mm = 0.0;
 	double z_mm = 0.0;
-	double merge_tolerance = 3000.0;
+	double merge_tolerance = 1000.0;
 	double track_window_x = 4.0;
 	double track_window_y = 4.0;
 };
@@ -35,18 +32,20 @@ struct PpacConfig {
 	double y_scale[kMaxPpac] = {1.0, 1.0, 1.0};
 };
 
-struct AnalysisPaths {
+struct AppPaths {
+	std::string decode = "decode";
 	std::string forge = "forge";
-	std::string normalize = "analysis/normalize";
-	std::string merge = "analysis/merge";
-	std::string track = "analysis/track";
-	std::string show = "analysis/show";
+	std::string fuse = "fuse";
+	std::string normalize = "normalize";
+	std::string match = "match";
+	std::string track = "track";
+	std::string estimate = "estimate";
 };
 
 struct AppConfig {
-	std::string workspace = ".";
-	std::string trigger_default;
-	AnalysisPaths paths;
+	std::string workspace = "/data/";
+	std::string trigger = "";
+	AppPaths paths;
 	PpacConfig ppac;
 	std::map<std::string, SquareDetectorConfig> detectors;
 };
@@ -58,4 +57,4 @@ const SquareDetectorConfig *FindDetectorConfig(
 	const std::string &name
 );
 
-} // namespace glimmer
+} // namespace brill

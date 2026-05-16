@@ -4,7 +4,7 @@
 
 #include <TTree.h>
 
-namespace glimmer {
+namespace brill {
 
 struct DssdEvent {
 	int front_num;
@@ -17,8 +17,12 @@ struct DssdEvent {
 	double back_time[8];
 };
 
-void SetupInput(TTree *tree, DssdEvent &event, const std::string &prefix);
+void SetupInput(TTree *tree, DssdEvent &event, const std::string &prefix = "");
 
 void SetupOutput(TTree *tree, DssdEvent &event);
+
+void Reset(DssdEvent &event);
+
+void Update(DssdEvent &event, bool front, int strip, double energy, double time);
 
 } // namespace glimmer

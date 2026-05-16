@@ -1,4 +1,4 @@
-#include "include/analysis/dssd.h"
+// #include "include/analysis/dssd.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,12 +10,10 @@
 #include <TH2F.h>
 #include <TTree.h>
 
-#include "include/analysis/file_name.h"
-#include "include/analysis/geometry.h"
+// #include "include/analysis/file_name.h"
+// #include "include/analysis/geometry.h"
 
-namespace glimmer {
-
-namespace {
+namespace brill {
 
 struct StripAccumulator {
 	double sum = 0.0;
@@ -30,110 +28,109 @@ double MeanOrDefault(const StripAccumulator &accumulator, double fallback) {
 	return accumulator.count > 0 ? accumulator.sum / accumulator.count : fallback;
 }
 
-} // namespace
 
-int RunDssdNormalize(
-	const AppConfig &config,
-	const std::string &detector,
-	const std::string &trigger,
-	int run,
-	int end_run
-) {
-	const SquareDetectorConfig *detector_config = FindDetectorConfig(config, detector);
-	if (!detector_config) {
-		std::cerr << "Error: Unknown detector " << detector << ".\n";
-		return -1;
-	}
+// int RunDssdNormalize(
+// 	const AppConfig &config,
+// 	const std::string &detector,
+// 	const std::string &trigger,
+// 	int run,
+// 	int end_run
+// ) {
+// 	const SquareDetectorConfig *detector_config = FindDetectorConfig(config, detector);
+// 	if (!detector_config) {
+// 		std::cerr << "Error: Unknown detector " << detector << ".\n";
+// 		return -1;
+// 	}
 
-	std::vector<StripAccumulator> front(detector_config->front_strips);
-	std::vector<StripAccumulator> back(detector_config->back_strips);
-	double total_reference = 0.0;
-	int total_count = 0;
-	TH2F before("before", "front-back before normalize", 1000, 0, 60000, 1000, 0, 60000);
-	for (int current = run; current <= end_run; ++current) {
-		std::string input_path = ForgeFileName(config, detector, trigger, current);
-		TFile input(input_path.c_str(), "read");
-		TTree *tree = dynamic_cast<TTree*>(input.Get("tree"));
-		if (!tree) {
-			std::cerr << "Error: Open DSSD forge file " << input_path << " failed.\n";
-			return -1;
-		}
-		DssdEvent event;
-		SetupInput(tree, event, "");
-		for (long long entry = 0; entry < tree->GetEntriesFast(); ++entry) {
-			tree->GetEntry(entry);
-			if (event.front_num != 1 || event.back_num != 1) continue;
-			int fs = event.front_strip[0];
-			int bs = event.back_strip[0];
-			if (fs < 0 || fs >= detector_config->front_strips) continue;
-			if (bs < 0 || bs >= detector_config->back_strips) continue;
-			before.Fill(event.back_energy[0], event.front_energy[0]);
-			double mean = 0.5 * (event.front_energy[0] + event.back_energy[0]);
-			front[fs].sum += event.front_energy[0];
-			front[fs].count += 1;
-			back[bs].sum += event.back_energy[0];
-			back[bs].count += 1;
-			total_reference += mean;
-			++total_count;
-		}
-	}
-	double global_mean = total_count > 0 ? total_reference / total_count : 1.0;
+// 	std::vector<StripAccumulator> front(detector_config->front_strips);
+// 	std::vector<StripAccumulator> back(detector_config->back_strips);
+// 	double total_reference = 0.0;
+// 	int total_count = 0;
+// 	TH2F before("before", "front-back before normalize", 1000, 0, 60000, 1000, 0, 60000);
+// 	for (int current = run; current <= end_run; ++current) {
+// 		std::string input_path = ForgeFileName(config, detector, trigger, current);
+// 		TFile input(input_path.c_str(), "read");
+// 		TTree *tree = dynamic_cast<TTree*>(input.Get("tree"));
+// 		if (!tree) {
+// 			std::cerr << "Error: Open DSSD forge file " << input_path << " failed.\n";
+// 			return -1;
+// 		}
+// 		DssdEvent event;
+// 		SetupInput(tree, event, "");
+// 		for (long long entry = 0; entry < tree->GetEntriesFast(); ++entry) {
+// 			tree->GetEntry(entry);
+// 			if (event.front_num != 1 || event.back_num != 1) continue;
+// 			int fs = event.front_strip[0];
+// 			int bs = event.back_strip[0];
+// 			if (fs < 0 || fs >= detector_config->front_strips) continue;
+// 			if (bs < 0 || bs >= detector_config->back_strips) continue;
+// 			before.Fill(event.back_energy[0], event.front_energy[0]);
+// 			double mean = 0.5 * (event.front_energy[0] + event.back_energy[0]);
+// 			front[fs].sum += event.front_energy[0];
+// 			front[fs].count += 1;
+// 			back[bs].sum += event.back_energy[0];
+// 			back[bs].count += 1;
+// 			total_reference += mean;
+// 			++total_count;
+// 		}
+// 	}
+// 	double global_mean = total_count > 0 ? total_reference / total_count : 1.0;
 
-	DssdNormalizeParameters parameters;
-	parameters.front_strips = detector_config->front_strips;
-	parameters.back_strips = detector_config->back_strips;
-	for (int i = 0; i < detector_config->front_strips; ++i) {
-		parameters.front_offset[i] = 0.0;
-		double local_mean = MeanOrDefault(front[i], global_mean);
-		parameters.front_scale[i] = std::fabs(local_mean) > 1e-9 ? global_mean / local_mean : 1.0;
-	}
-	for (int i = 0; i < detector_config->back_strips; ++i) {
-		parameters.back_offset[i] = 0.0;
-		double local_mean = MeanOrDefault(back[i], global_mean);
-		parameters.back_scale[i] = std::fabs(local_mean) > 1e-9 ? global_mean / local_mean : 1.0;
-	}
+// 	DssdNormalizeParameters parameters;
+// 	parameters.front_strips = detector_config->front_strips;
+// 	parameters.back_strips = detector_config->back_strips;
+// 	for (int i = 0; i < detector_config->front_strips; ++i) {
+// 		parameters.front_offset[i] = 0.0;
+// 		double local_mean = MeanOrDefault(front[i], global_mean);
+// 		parameters.front_scale[i] = std::fabs(local_mean) > 1e-9 ? global_mean / local_mean : 1.0;
+// 	}
+// 	for (int i = 0; i < detector_config->back_strips; ++i) {
+// 		parameters.back_offset[i] = 0.0;
+// 		double local_mean = MeanOrDefault(back[i], global_mean);
+// 		parameters.back_scale[i] = std::fabs(local_mean) > 1e-9 ? global_mean / local_mean : 1.0;
+// 	}
 
-	std::string param_path = NormalizeParamFileName(config, detector, trigger, run, end_run);
-	TFile output(param_path.c_str(), "recreate");
-	TTree params_tree("params", "dssd normalize parameters");
-	params_tree.Branch("front_strips", &parameters.front_strips, "front_strips/I");
-	params_tree.Branch("back_strips", &parameters.back_strips, "back_strips/I");
-	params_tree.Branch("front_offset", parameters.front_offset, "front_offset[128]/D");
-	params_tree.Branch("front_scale", parameters.front_scale, "front_scale[128]/D");
-	params_tree.Branch("back_offset", parameters.back_offset, "back_offset[128]/D");
-	params_tree.Branch("back_scale", parameters.back_scale, "back_scale[128]/D");
-	params_tree.Fill();
-	params_tree.Write();
-	before.Write();
-	output.Close();
+// 	std::string param_path = NormalizeParamFileName(config, detector, trigger, run, end_run);
+// 	TFile output(param_path.c_str(), "recreate");
+// 	TTree params_tree("params", "dssd normalize parameters");
+// 	params_tree.Branch("front_strips", &parameters.front_strips, "front_strips/I");
+// 	params_tree.Branch("back_strips", &parameters.back_strips, "back_strips/I");
+// 	params_tree.Branch("front_offset", parameters.front_offset, "front_offset[128]/D");
+// 	params_tree.Branch("front_scale", parameters.front_scale, "front_scale[128]/D");
+// 	params_tree.Branch("back_offset", parameters.back_offset, "back_offset[128]/D");
+// 	params_tree.Branch("back_scale", parameters.back_scale, "back_scale[128]/D");
+// 	params_tree.Fill();
+// 	params_tree.Write();
+// 	before.Write();
+// 	output.Close();
 
-	for (int current = run; current <= end_run; ++current) {
-		std::string input_path = ForgeFileName(config, detector, trigger, current);
-		std::string normalize_path = NormalizeFileName(config, detector, trigger, current);
-		TFile input(input_path.c_str(), "read");
-		TTree *tree = dynamic_cast<TTree*>(input.Get("tree"));
-		if (!tree) return -1;
-		DssdEvent raw;
-		SetupInput(tree, raw, "");
-		TFile normalized_file(normalize_path.c_str(), "recreate");
-		TTree opt("tree", "normalized dssd");
-		DssdNormalizedEvent normalized;
-		SetupOutput(&opt, normalized);
-		TH2F after("after", "front-back after normalize", 1000, 0, 60000, 1000, 0, 60000);
-		for (long long entry = 0; entry < tree->GetEntriesFast(); ++entry) {
-			tree->GetEntry(entry);
-			ApplyDssdNormalize(raw, parameters, normalized);
-			if (normalized.front_num == 1 && normalized.back_num == 1) {
-				after.Fill(normalized.back_energy[0], normalized.front_energy[0]);
-			}
-			opt.Fill();
-		}
-		opt.Write();
-		after.Write();
-		normalized_file.Close();
-	}
-	return 0;
-}
+// 	for (int current = run; current <= end_run; ++current) {
+// 		std::string input_path = ForgeFileName(config, detector, trigger, current);
+// 		std::string normalize_path = NormalizeFileName(config, detector, trigger, current);
+// 		TFile input(input_path.c_str(), "read");
+// 		TTree *tree = dynamic_cast<TTree*>(input.Get("tree"));
+// 		if (!tree) return -1;
+// 		DssdEvent raw;
+// 		SetupInput(tree, raw, "");
+// 		TFile normalized_file(normalize_path.c_str(), "recreate");
+// 		TTree opt("tree", "normalized dssd");
+// 		DssdNormalizedEvent normalized;
+// 		SetupOutput(&opt, normalized);
+// 		TH2F after("after", "front-back after normalize", 1000, 0, 60000, 1000, 0, 60000);
+// 		for (long long entry = 0; entry < tree->GetEntriesFast(); ++entry) {
+// 			tree->GetEntry(entry);
+// 			ApplyDssdNormalize(raw, parameters, normalized);
+// 			if (normalized.front_num == 1 && normalized.back_num == 1) {
+// 				after.Fill(normalized.back_energy[0], normalized.front_energy[0]);
+// 			}
+// 			opt.Fill();
+// 		}
+// 		opt.Write();
+// 		after.Write();
+// 		normalized_file.Close();
+// 	}
+// 	return 0;
+// }
 
 int ReadDssdNormalizeParameters(const std::string &path, DssdNormalizeParameters &parameters) {
 	TFile input(path.c_str(), "read");

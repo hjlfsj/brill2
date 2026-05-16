@@ -1,23 +1,18 @@
-add_subdirectory(event/forge)
-add_subdirectory(t0)
-
 add_library(
-	estimate_support
-	config.cpp
+	t0_dssd
+	dssd.cpp
 )
 target_include_directories(
-	estimate_support
+	t0_dssd
 	PUBLIC
 	${PROJECT_SOURCE_DIR}
 	${ROOT_INCLUDE_DIRS}
 )
 target_link_libraries(
-	estimate_support
-	PUBLIC
 	t0_dssd
+	PUBLIC
 	dssd_event
 	ROOT::Core
 	ROOT::RIO
 	ROOT::Tree
-	ROOT::Hist
 )
