@@ -19,3 +19,12 @@ target_link_libraries(
 	estimate_support
 	silicon_event
 )
+
+add_executable(estimate_t0_straight estimate_t0_straight.cpp)
+target_link_libraries(
+	estimate_t0_straight
+	PRIVATE
+	estimate_support
+	silicon_event
+	ROOT::Graf
+)
