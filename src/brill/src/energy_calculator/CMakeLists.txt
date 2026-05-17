@@ -1,0 +1,19 @@
+add_library(
+	energy_calculator
+	range_energy_calculator.cpp
+	lost_energy_calculator.cpp
+)
+target_include_directories(
+	energy_calculator
+	PUBLIC
+	${PROJECT_SOURCE_DIR}
+	${ROOT_INCLUDE_DIRS}
+)
+target_link_libraries(
+	energy_calculator
+	PUBLIC
+	${BRILL_CATIMA_TARGET}
+	ROOT::Core
+	ROOT::RIO
+	ROOT::Hist
+)

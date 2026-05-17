@@ -42,6 +42,8 @@ void LoadPaths(const toml::table &table, AppPaths &paths) {
 	LoadPath(table, "match", paths.match);
 	LoadPath(table, "track", paths.track);
 	LoadPath(table, "estimate", paths.estimate);
+	LoadPath(table, "calibration", paths.calibration);
+	LoadPath(table, "energy_calculator", paths.energy_calculator);
 }
 
 void LoadTrackWindow(
@@ -61,6 +63,48 @@ void LoadTrack(const toml::table &table, TrackConfig &track) {
 	LoadTrackWindow(table, "d2d1_window", track.d2d1_window);
 	LoadTrackWindow(table, "d3d2_window", track.d3d2_window);
 	LoadTrackWindow(table, "d4d3_window", track.d4d3_window);
+}
+
+void LoadStraightParticle(
+	const toml::table &table,
+	StraightParticleConfig &particle
+) {
+	if (auto node = table["particle"].value<std::string>()) {
+		particle.particle = *node;
+	}
+	LoadDetectorDouble(table, "mean", particle.mean);
+	LoadDetectorDouble(table, "sigma", particle.sigma);
+	LoadDetectorDouble(table, "range", particle.range);
+}
+
+void LoadStraightSlice(
+	const toml::table &table,
+	StraightSliceConfig &slice
+) {
+	LoadDetectorDouble(table, "A", slice.A);
+	LoadDetectorDouble(table, "B", slice.B);
+	if (const auto *particles = table["particles"].as_array()) {
+		for (size_t i = 0; i < particles->size(); ++i) {
+			const auto *particle_table = (*particles)[i].as_table();
+			if (!particle_table) continue;
+			StraightParticleConfig particle;
+			LoadStraightParticle(*particle_table, particle);
+			if (!particle.particle.empty()) {
+				slice.particles.push_back(particle);
+			}
+		}
+	}
+}
+
+void LoadIdentify(const toml::table &table, IdentifyConfig &identify) {
+	const auto *straight = table["straight"].as_table();
+	if (!straight) return;
+	for (const auto &item : *straight) {
+		if (!item.second.is_table()) continue;
+		StraightSliceConfig slice;
+		LoadStraightSlice(*item.second.as_table(), slice);
+		identify.straight[std::string(item.first.str())] = slice;
+	}
 }
 
 void LoadPpac(const toml::table &table, PpacConfig &ppac) {
@@ -143,6 +187,9 @@ int LoadConfig(const std::string &path, AppConfig &config) {
 		if (const auto *track = table["track"].as_table()) {
 			LoadTrack(*track, config.track);
 		}
+		if (const auto *identify = table["identify"].as_table()) {
+			LoadIdentify(*identify, config.identify);
+		}
 
 		if (const auto *detectors = table["detectors"].as_table()) {
 			if (const auto *ppac = (*detectors)["ppac"].as_table()) {
@@ -166,6 +213,15 @@ int LoadConfig(const std::string &path, AppConfig &config) {
 const SquareDetectorConfig *FindDetectorConfig(const AppConfig &config, const std::string &name) {
 	auto iter = config.detectors.find(name);
 	if (iter == config.detectors.end()) return nullptr;
+	return &iter->second;
+}
+
+const StraightSliceConfig *FindStraightSliceConfig(
+	const AppConfig &config,
+	const std::string &name
+) {
+	auto iter = config.identify.straight.find(name);
+	if (iter == config.identify.straight.end()) return nullptr;
 	return &iter->second;
 }
 

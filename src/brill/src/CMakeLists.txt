@@ -1,5 +1,6 @@
 add_subdirectory(event/forge)
 add_subdirectory(event/t0)
+add_subdirectory(energy_calculator)
 add_subdirectory(t0)
 
 add_library(

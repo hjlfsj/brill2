@@ -76,3 +76,166 @@ z_mm = 0.0
 d2d1_window = [-4.0, 2.0]
 d3d2_window = [-4.0, 4.0]
 d4d3_window = [-5.0, 5.0]
+
+[identify.straight.t0d1d2]
+A = 0.1128
+B = -0.0738
+[[identify.straight.t0d1d2.particles]]
+particle = "4He"
+mean = 4060.3
+sigma = 139.5
+range = 2.0
+
+[identify.straight.t0d2d3]
+A = 0.4656
+B = -0.0513
+[[identify.straight.t0d2d3.particles]]
+particle = "3He"
+mean = 5006
+sigma = 111
+range = 1.0
+[[identify.straight.t0d2d3.particles]]
+particle = "4He"
+mean = 5679.3
+sigma = 60.7
+range = 3.0
+[[identify.straight.t0d2d3.particles]]
+particle = "6Li"
+mean = 10760
+sigma = 119
+range = 2.0
+[[identify.straight.t0d2d3.particles]]
+particle = "7Li"
+mean = 11512
+sigma = 145
+range = 1.5
+[[identify.straight.t0d2d3.particles]]
+particle = "7Be"
+mean = 15933
+sigma = 157
+range = 3.0
+[[identify.straight.t0d2d3.particles]]
+particle = "9Be"
+mean = 17799
+sigma = 260
+range = 1.0
+[[identify.straight.t0d2d3.particles]]
+particle = "10B"
+mean = 23952
+sigma = 205
+range = 1.5
+[[identify.straight.t0d2d3.particles]]
+particle = "11B"
+mean = 24953
+sigma = 175
+range = 2.0
+[[identify.straight.t0d2d3.particles]]
+particle = "10C"
+mean = 29355
+sigma = 320
+range = 1.0
+[[identify.straight.t0d2d3.particles]]
+particle = "12C"
+mean = 30650
+sigma = 211
+range = 2.0
+[[identify.straight.t0d2d3.particles]]
+particle = "12C"
+mean = 31812
+sigma = 175
+range = 3.0
+[[identify.straight.t0d2d3.particles]]
+particle = "13C"
+mean = 32956
+sigma = 258
+range = 1.0
+
+
+[identify.straight.t0d3d4]
+A = 0.7022
+B = -0.0491
+[[identify.straight.t0d3d4.particles]]
+particle = "3He"
+mean = 5317
+sigma = 123
+range = 1.0
+[[identify.straight.t0d3d4.particles]]
+particle = "4He"
+mean = 6012.4
+sigma = 68.9
+range = 3.0
+[[identify.straight.t0d3d4.particles]]
+particle = "6Li"
+mean = 11373
+sigma = 118
+range = 1.5
+[[identify.straight.t0d3d4.particles]]
+particle = "7Li"
+mean = 12152
+sigma = 124
+range = 1.5
+[[identify.straight.t0d3d4.particles]]
+particle = "7Be"
+mean = 16809
+sigma = 121
+range = 3.0
+[[identify.straight.t0d3d4.particles]]
+particle = "9Be"
+mean = 18747
+sigma = 133
+range = 2.0
+[[identify.straight.t0d3d4.particles]]
+particle = "10B"
+mean = 25248
+sigma = 141
+range = 2.5
+[[identify.straight.t0d3d4.particles]]
+particle = "11B"
+mean = 26312
+sigma = 129
+range = 2.0
+[[identify.straight.t0d3d4.particles]]
+particle = "12B"
+mean = 27450
+sigma = 210
+range = 1.0
+[[identify.straight.t0d3d4.particles]]
+particle = "10C"
+mean = 30970
+sigma = 190
+range = 1.0
+[[identify.straight.t0d3d4.particles]]
+particle = "11C"
+mean = 32312
+sigma = 162
+range = 2.0
+[[identify.straight.t0d3d4.particles]]
+particle = "12C"
+mean = 33530
+sigma = 149
+range = 2.5
+[[identify.straight.t0d3d4.particles]]
+particle = "13C"
+mean = 34720
+sigma = 149
+range = 2.0
+
+
+[identify.straight.t0d4s]
+A = 0.9458
+B = -0.0429
+[[identify.straight.t0d4s.particles]]
+particle = "3He"
+mean = 8355
+sigma = 350
+range = 0.5
+[[identify.straight.t0d4s.particles]]
+particle = "4He"
+mean = 9444
+sigma = 123
+range = 2.0
+[[identify.straight.t0d4s.particles]]
+particle = "7Be"
+mean = 26418
+sigma = 210
+range = 2.0

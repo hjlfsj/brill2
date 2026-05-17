@@ -1,6 +1,8 @@
 # Require the cmake minimum version.
 cmake_minimum_required(VERSION 3.10)
 
+include(FetchContent)
+
 
 # Set project properties.
 project(
@@ -44,7 +46,29 @@ if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 endif()
 
 # find root
-find_package(ROOT 6.20 CONFIG REQUIRED)
+find_package(ROOT 6.20 CONFIG REQUIRED COMPONENTS Core RIO Tree Hist Graf Minuit)
+
+# find catima
+find_package(catima CONFIG QUIET)
+if (NOT catima_FOUND)
+	message(STATUS "catima not found locally, fetching it...")
+	FetchContent_Declare(
+		catima
+		GIT_REPOSITORY https://github.com/kinstaky/catima.git
+		GIT_TAG v1.90
+		GIT_SHALLOW TRUE
+		GIT_SHALLOW_DEPTH 1
+	)
+	FetchContent_MakeAvailable(catima)
+endif()
+
+if (TARGET catima::catima)
+	set(BRILL_CATIMA_TARGET catima::catima)
+elseif (TARGET catima)
+	set(BRILL_CATIMA_TARGET catima)
+else()
+	message(FATAL_ERROR "catima target not found after package resolution.")
+endif()
 
 
 # show properties

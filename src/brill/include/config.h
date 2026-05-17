@@ -33,6 +33,23 @@ struct TrackConfig {
 	TrackWindowConfig d4d3_window;
 };
 
+struct StraightParticleConfig {
+	std::string particle;
+	double mean = 0.0;
+	double sigma = 0.0;
+	double range = 0.0;
+};
+
+struct StraightSliceConfig {
+	double A = 0.0;
+	double B = 0.0;
+	std::vector<StraightParticleConfig> particles;
+};
+
+struct IdentifyConfig {
+	std::map<std::string, StraightSliceConfig> straight;
+};
+
 struct PpacConfig {
 	double z_mm[kMaxPpac] = {0.0, 0.0, 0.0};
 	double x_offset_mm[kMaxPpac] = {0.0, 0.0, 0.0};
@@ -49,6 +66,8 @@ struct AppPaths {
 	std::string match = "match";
 	std::string track = "track";
 	std::string estimate = "estimate";
+	std::string calibration = "calibration";
+	std::string energy_calculator = "energy_calculator";
 };
 
 struct AppConfig {
@@ -57,6 +76,7 @@ struct AppConfig {
 	std::vector<int> jump_run;
 	AppPaths paths;
 	TrackConfig track;
+	IdentifyConfig identify;
 	PpacConfig ppac;
 	std::map<std::string, SquareDetectorConfig> detectors;
 };
@@ -64,6 +84,11 @@ struct AppConfig {
 int LoadConfig(const std::string &path, AppConfig &config);
 
 const SquareDetectorConfig *FindDetectorConfig(
+	const AppConfig &config,
+	const std::string &name
+);
+
+const StraightSliceConfig *FindStraightSliceConfig(
 	const AppConfig &config,
 	const std::string &name
 );

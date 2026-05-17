@@ -71,6 +71,7 @@ SliceStraightSpec MakeSlice(
 	return spec;
 }
 
+
 void PrintUsage(const cxxopts::Options &options) {
 	std::cout << options.help() << "\n";
 }
@@ -245,7 +246,7 @@ int main(int argc, char **argv) {
 		std::make_unique<TH2F>("sd2d3", "D2-D3 straight PID", 5000, 0.0, 50000.0, 5000, 0.0, 50000.0),
 		std::make_unique<TH1F>("ed2d3", "D2-D3 straight energy", 5000, 0.0, 50000.0)
 	));
-	for (const char *particle : {"4He", "6Li", "7Be", "9B", "10C"}) {
+	for (const char *particle : {"4He", "6Li", "7Be", "10B", "10C"}) {
 		slices.back().particles.push_back(MakeParticle(particle));
 	}
 
@@ -257,7 +258,7 @@ int main(int argc, char **argv) {
 		std::make_unique<TH2F>("sd3d4", "D3-D4 straight PID", 5000, 0.0, 45000.0, 5000, 0.0, 45000.0),
 		std::make_unique<TH1F>("ed3d4", "D3-D4 straight energy", 5000, 0.0, 45000.0)
 	));
-	for (const char *particle : {"4He", "6Li", "7Be", "9B", "10C"}) {
+	for (const char *particle : {"4He", "6Li", "7Be", "10B", "10C"}) {
 		slices.back().particles.push_back(MakeParticle(particle));
 	}
 
@@ -422,13 +423,16 @@ int main(int argc, char **argv) {
 	for (auto &slice : slices) {
 		for (auto &particle : slice.particles) {
 			if (particle.cut) particle.cut->Write();
-			particle.graph.Write();
-			if (particle.fit) particle.fit->Write();
 		}
-		slice.pid->Write();
-		slice.straight_pid->Write();
-		slice.ef_hist->Write();
 	}
+	for (auto &slice : slices) {
+		for (auto &particle : slice.particles) {
+			particle.graph.Write();
+		}
+	}
+	for (auto &slice : slices) slice.pid->Write();
+	for (auto &slice : slices) slice.straight_pid->Write();
+	for (auto &slice : slices) slice.ef_hist->Write();
 	opf.Close();
 
 	return 0;
