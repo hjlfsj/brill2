@@ -8,12 +8,13 @@
 #include <vector>
 
 #include <TChain.h>
-#include <TGraph.h>
 #include <TString.h>
+#include <TFile.h>
+#include <TF1.h>
 
 #include "external/cxxopts.hpp"
 #include "include/config.h"
-#include "include/energy_calculator/lost_energy_calculator.h"
+#include "include/energy_calculator/delta_energy_calculator.h"
 #include "include/event/t0/t0_event.h"
 #include "include/utils.h"
 
@@ -21,159 +22,99 @@ namespace {
 
 constexpr int kLayerCount = 5;
 
-struct FitSample {
-	int calculator = -1;
-	int de_layer = -1;
-	int e_layer = -1;
-	double de_raw = 0.0;
-	double e_raw = 0.0;
-};
-
-struct CalculatorKey {
-	int charge = 0;
-	int mass = 0;
-	int detector = -1;
-
-	bool operator<(const CalculatorKey &other) const {
-		if (charge != other.charge) return charge < other.charge;
-		if (mass != other.mass) return mass < other.mass;
-		return detector < other.detector;
-	}
-};
-
-std::vector<FitSample> *g_samples = nullptr;
-std::vector<std::unique_ptr<brill::LostEnergyCalculator>> *g_calculators = nullptr;
-
 void PrintUsage(const cxxopts::Options &options) {
 	std::cout << options.help() << "\n";
 }
 
-bool MatchParticle(
-	const brill::T0Event &event,
-	int index,
-	int layer,
-	int charge,
-	int mass
-) {
-	return
-		event.layer[index] == layer
-		&& event.charge[index] == charge
-		&& event.mass[index] == mass;
-}
+struct ParticlePidInfo {
+	// layer, 2 for d1d2, 3 for d2d3, 4 for d3d4, 5 for d4s
+	int layer;
+	// charge number of this particle
+	int charge;
+	// mass number of this particle
+	int mass;
+	// left bound of pid
+	double left;
+	// right bound of pid
+	double right;
+	// offset of this layer
+	double offset;
+};
 
-bool BuildSample(
-	const brill::T0Event &event,
-	int index,
-	FitSample &sample
-) {
-	if (MatchParticle(event, index, 2, 2, 4)) {
-		sample.de_layer = 0;
-		sample.e_layer = 1;
-	} else if (
-		MatchParticle(event, index, 3, 2, 4)
-		|| MatchParticle(event, index, 3, 4, 7)
-		|| MatchParticle(event, index, 3, 6, 12)
+const std::vector<ParticlePidInfo> pid_info {
+	// d1d2
+	{0, 2, 4, 3000.0, 10000.0, 0.0},
+	// d2d3
+	{1, 2, 4, 4000.0, 8000.0, 10000.0},
+	{1, 4, 7, 11500.0, 19000.0, 10000.0},
+	{1, 6, 12, 23000.0, 45000.0, 10000.0},
+	// d3d4
+	{2, 2, 4, 3600.0, 6500.0, 55000.0},
+	{2, 4, 7, 9800.0, 19000.0, 55000.0},
+	{2, 6, 12, 23000.0, 39000.0, 55000.0},
+	// d4s
+	{3, 2, 4, 4300.0, 8800.0, 95000.0},
+	{3, 4, 7, 12000.0, 23000.0, 95000.0}
+};
+
+class PidFitFunc {
+public:
+	PidFitFunc(
+		const std::vector<std::pair<int, int>> &projectiles,
+		const brill::AppConfig &config
 	) {
-		sample.de_layer = 1;
-		sample.e_layer = 2;
-	} else if (
-		MatchParticle(event, index, 4, 2, 4)
-		|| MatchParticle(event, index, 4, 4, 7)
-		|| MatchParticle(event, index, 4, 6, 12)
-	) {
-		sample.de_layer = 2;
-		sample.e_layer = 3;
-	} else if (
-		MatchParticle(event, index, 5, 2, 4)
-		|| MatchParticle(event, index, 5, 4, 7)
-	) {
-		sample.de_layer = 3;
-		sample.e_layer = 4;
-	} else {
-		return false;
-	}
-
-	sample.de_raw = event.energy[index][sample.de_layer];
-	sample.e_raw = event.energy[index][sample.e_layer];
-	return sample.de_raw > 0.0 && sample.e_raw > 0.0;
-}
-
-std::string DetectorNameFromLayer(int layer) {
-	switch (layer) {
-		case 0: return "t0d1";
-		case 1: return "t0d2";
-		case 2: return "t0d3";
-		case 3: return "t0d4";
-		case 4: return "t0s";
-		default: return "";
-	}
-}
-
-std::string CalculatorCachePath(
-	const brill::AppConfig &config,
-	int charge,
-	int mass,
-	const brill::SquareDetectorConfig &detector
-) {
-	return TString::Format(
-		"%s/si_%.0fum_z%d_a%d.root",
-		brill::JoinPath(config.workspace, config.paths.energy_calculator).c_str(),
-		detector.thickness_um,
-		charge,
-		mass
-	).Data();
-}
-
-int GetCalculatorIndex(
-	const brill::AppConfig &config,
-	int charge,
-	int mass,
-	int detector_layer,
-	const brill::SquareDetectorConfig &detector,
-	std::map<CalculatorKey, int> &indices,
-	std::vector<std::unique_ptr<brill::LostEnergyCalculator>> &calculators
-) {
-	CalculatorKey key{charge, mass, detector_layer};
-	auto iter = indices.find(key);
-	if (iter != indices.end()) return iter->second;
-
-	int index = int(calculators.size());
-	calculators.push_back(std::make_unique<brill::LostEnergyCalculator>(
-		charge,
-		mass,
-		brill::SiliconMaterial(),
-		detector.thickness_um,
-		CalculatorCachePath(config, charge, mass, detector)
-	));
-	indices[key] = index;
-	return index;
-}
-
-void CalibrationFcn(
-	int &,
-	double *,
-	double &value,
-	double *parameters,
-	int
-) {
-	value = 0.0;
-	if (!g_samples || !g_calculators) return;
-
-	for (const auto &sample : *g_samples) {
-		double de_cal = parameters[sample.de_layer * 2] + parameters[sample.de_layer * 2 + 1] * sample.de_raw;
-		double e_cal = parameters[sample.e_layer * 2] + parameters[sample.e_layer * 2 + 1] * sample.e_raw;
-		if (de_cal <= 0.0 || e_cal <= 0.0) {
-			value += 1e12;
-			continue;
+		for (const auto &p : projectiles) {
+			calculators_.insert(
+				std::make_pair(
+					p.first * 100 + p.second,
+					std::make_unique<brill::DeltaEnergyCalculator>(
+						config,
+						p.first,
+						p.second
+					)
+				)
+			);
 		}
-		double de_phys = (*g_calculators)[sample.calculator]->EnergyLossFromResidual(e_cal);
-		double residual = de_cal - de_phys;
-		value += residual * residual;
 	}
-}
+
+	double operator()(double *x, double *par) const {
+		// identify particle
+		for (const auto &info : pid_info) {
+			if (
+				x[0] > info.left + info.offset
+				&& x[0] < info.right + info.offset
+			) {
+				double de =
+					par[info.layer*2]
+					+ par[info.layer*2+1] * (x[0] - info.offset);
+				auto calculator = calculators_.at(info.charge*100+info.mass);
+				double e = calculator->Energy(info.layer, de);
+				return (e - par[info.layer*2+2]) / par[info.layer*2+3];
+			}
+		}
+		return 0.0;
+	}
+private:
+	std::map<int, std::shared_ptr<brill::DeltaEnergyCalculator>> calculators_;
+};
+
+std::string layer_names[kLayerCount] = {
+	"t0d1", "t0d2", "t0d3", "t0d4", "t0s"
+};
+
+// std::string DetectorNameFromLayer(int layer) {
+// 	switch (layer) {
+// 		case 1: return "t0d1";
+// 		case 2: return "t0d2";
+// 		case 3: return "t0d3";
+// 		case 4: return "t0d4";
+// 		case 5: return "t0s";
+// 		default: return "";
+// 	}
+// }
 
 int WriteCalibrationParameters(
-	const std::string &path,
+	const char *path,
 	const double *parameters
 ) {
 	std::filesystem::path file_path(path);
@@ -244,7 +185,8 @@ int main(int argc, char **argv) {
 	};
 	for (int i = 0; i < kLayerCount; ++i) {
 		if (!detectors[i]) {
-			std::cerr << "Error: Missing detector config for " << DetectorNameFromLayer(i) << ".\n";
+			std::cerr << "Error: Missing detector config for "
+				<< layer_names[i] << ".\n";
 			return 1;
 		}
 	}
@@ -277,11 +219,17 @@ int main(int argc, char **argv) {
 	brill::T0Event event;
 	brill::SetupInput(&chain, event);
 
-	std::vector<FitSample> samples;
-	std::vector<std::unique_ptr<brill::LostEnergyCalculator>> calculators;
-	std::map<CalculatorKey, int> calculator_indices;
+	TString output_path = TString::Format(
+		"%s/t0_%s%04d_%04d.root",
+		brill::JoinPath(config.workspace, config.paths.calibration).c_str(),
+		trigger_infix.c_str(),
+		run,
+		end_run
+	);
+	TFile opf(output_path, "recreate");
+	TGraph gcali;
 
-	const long long total = chain.GetEntries();
+	long long total = chain.GetEntries();
 	long long last_percentage = -1;
 	std::printf("Collecting T0 calibration samples   0%%");
 	std::fflush(stdout);
@@ -294,72 +242,52 @@ int main(int argc, char **argv) {
 		}
 		chain.GetEntry(entry);
 		for (int i = 0; i < event.num; ++i) {
-			FitSample sample;
-			if (!BuildSample(event, i, sample)) continue;
-			sample.calculator = GetCalculatorIndex(
-				config,
-				event.charge[i],
-				event.mass[i],
-				sample.de_layer,
-				*detectors[sample.de_layer],
-				calculator_indices,
-				calculators
-			);
-			samples.push_back(sample);
+			for (const auto &info : pid_info) {
+				if (
+					event.layer[i] == info.layer+2
+					&& event.charge[i] == info.charge
+					&& event.mass[i] == info.mass
+					&& event.energy[i][0] > info.left
+					&& event.energy[i][0] < info.right
+				) {
+					gcali.AddPoint(
+						event.energy[i][0] + info.offset,
+						event.energy[i][1]
+					);
+					break;
+				}
+			}
 		}
 	}
 	std::printf("\b\b\b\b100%%\n");
 
-	if (samples.empty()) {
-		std::cerr << "Error: No calibration samples selected from tracked events.\n";
-		return 1;
+	double initial_calibration_parameters[12] = {
+		0.0, 0.006,
+		0.0, 0.006,
+		0.0, 0.006,
+		0.0, 0.006,
+		0.0, 0.03
+	};
+
+	std::vector<std::pair<int, int>> projectiles {
+		// 4He
+		{2, 4},
+		// 7Be
+		{4, 7},
+		// 12C
+		{6, 12}
+	};
+	PidFitFunc pid_fit(projectiles, config);
+	// fit function
+	TF1 fcali("fcali", pid_fit, 0.0, 120'000.0, 10);
+	fcali.SetNpx(10000);
+	for (size_t i = 0; i < 12; ++i) {
+		fcali.SetParameter(i, initial_calibration_parameters[i]);
 	}
+	// fit
+	gcali.Fit(&fcali, "R+");
 
-	g_samples = &samples;
-	g_calculators = &calculators;
-
-	TMinuit minuit(kLayerCount * 2);
-	minuit.SetPrintLevel(-1);
-	minuit.SetFCN(CalibrationFcn);
-
-	int ierflg = 0;
-	double arglist[2] = {1.0, 0.0};
-	minuit.mnexcm("SET ERR", arglist, 1, ierflg);
-
-	const char *layer_names[kLayerCount] = {"d1", "d2", "d3", "d4", "s"};
-	for (int layer = 0; layer < kLayerCount; ++layer) {
-		minuit.DefineParameter(
-			layer * 2,
-			(std::string("p0_") + layer_names[layer]).c_str(),
-			0.0,
-			1.0,
-			0.0,
-			0.0
-		);
-		minuit.DefineParameter(
-			layer * 2 + 1,
-			(std::string("p1_") + layer_names[layer]).c_str(),
-			0.006,
-			1e-5,
-			1e-8,
-			1.0
-		);
-	}
-
-	arglist[0] = 2000.0;
-	arglist[1] = 1e-6;
-	minuit.mnexcm("MIGRAD", arglist, 2, ierflg);
-	if (ierflg != 0) {
-		std::cerr << "Error: MIGRAD failed with code " << ierflg << ".\n";
-		return 1;
-	}
-
-	double parameters[kLayerCount * 2] = {0.0};
-	double errors[kLayerCount * 2] = {0.0};
-	for (int index = 0; index < kLayerCount * 2; ++index) {
-		minuit.GetParameter(index, parameters[index], errors[index]);
-	}
-
+	double *parameters = fcali.GetParameters();
 	std::cout << "Calibration parameters:\n";
 	for (int layer = 0; layer < kLayerCount; ++layer) {
 		std::cout
@@ -369,21 +297,15 @@ int main(int argc, char **argv) {
 			<< "\n";
 	}
 
-	std::string output_path = TString::Format(
-		"%s/t0_%s%04d_%04d.txt",
-		brill::JoinPath(config.workspace, config.paths.calibration).c_str(),
-		trigger_infix.c_str(),
-		run,
-		end_run
+	output_path = TString::Format(
+		"%s/t0.txt",
+		brill::JoinPath(config.workspace, config.paths.calibration).c_str()
 	).Data();
-	if (run == end_run) {
-		output_path = TString::Format(
-			"%s/t0_%s%04d.txt",
-			brill::JoinPath(config.workspace, config.paths.calibration).c_str(),
-			trigger_infix.c_str(),
-			run
-		).Data();
-	}
-
-	return WriteCalibrationParameters(output_path, parameters) == 0 ? 0 : 1;
+	WriteCalibrationParameters(output_path, parameters);
+	// save graph
+	opf.cd();
+	gcali.Write("gcali");
+	// close files
+	opf.Close();
+	return 0;
 }

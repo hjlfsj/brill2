@@ -2,6 +2,7 @@ add_library(
 	energy_calculator
 	range_energy_calculator.cpp
 	lost_energy_calculator.cpp
+	delta_energy_calculator.cpp
 )
 target_include_directories(
 	energy_calculator

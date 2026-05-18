@@ -11,6 +11,9 @@ match = "match"
 track = "track"
 estimate = "estimate"
 
+[t0]
+silicon = ["t0d1", "t0d2", "t0d3", "t0d4", "t0s"]
+
 [detectors.ppac]
 z_mm = [-52.0, -332.0, -612.0]
 x_offset_mm = [0.0, 0.0, 0.0]
@@ -19,6 +22,7 @@ x_scale = [1.0, 1.0, 1.0]
 y_scale = [1.0, 1.0, 1.0]
 
 [detectors.t0d1]
+type = "dssd"
 front_strips = 32
 back_strips = 32
 thickness_um = 65.0
@@ -30,6 +34,7 @@ z_mm = 100.0
 match_tolerance = 500.0
 
 [detectors.t0d2]
+type = "dssd"
 front_strips = 64
 back_strips = 64
 thickness_um = 1000.0
@@ -41,6 +46,7 @@ z_mm = 111.76
 match_tolerance = 400.0
 
 [detectors.t0d3]
+type = "dssd"
 front_strips = 32
 back_strips = 32
 thickness_um = 1500.0
@@ -52,6 +58,7 @@ z_mm = 123.52
 match_tolerance = 300.0
 
 [detectors.t0d4]
+type = "dssd"
 front_strips = 32
 back_strips = 32
 thickness_um = 1500.0
@@ -63,8 +70,7 @@ z_mm = 135.28
 match_tolerance = 200.0
 
 [detectors.t0s]
-front_strips = 1
-back_strips = 1
+type = "ssd"
 thickness_um = 1500.0
 size_x_mm = 64.0
 size_y_mm = 64.0

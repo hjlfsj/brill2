@@ -11,6 +11,7 @@ constexpr int kMaxStrips = 128;
 
 struct SquareDetectorConfig {
 	std::string name;
+	std::string type = "dssd";
 	int front_strips = 32;
 	int back_strips = 32;
 	double thickness_um = 0.0;
@@ -58,6 +59,10 @@ struct PpacConfig {
 	double y_scale[kMaxPpac] = {1.0, 1.0, 1.0};
 };
 
+struct T0Config {
+	std::vector<std::string> silicon;
+};
+
 struct AppPaths {
 	std::string ore = "ore";
 	std::string grit = "grit";
@@ -75,6 +80,7 @@ struct AppConfig {
 	std::string trigger = "";
 	std::vector<int> jump_run;
 	AppPaths paths;
+	T0Config t0;
 	TrackConfig track;
 	IdentifyConfig identify;
 	PpacConfig ppac;

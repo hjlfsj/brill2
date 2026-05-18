@@ -65,6 +65,17 @@ void LoadTrack(const toml::table &table, TrackConfig &track) {
 	LoadTrackWindow(table, "d4d3_window", track.d4d3_window);
 }
 
+void LoadT0(const toml::table &table, T0Config &t0) {
+	if (const auto *silicon = table["silicon"].as_array()) {
+		t0.silicon.clear();
+		for (size_t i = 0; i < silicon->size(); ++i) {
+			if (auto value = (*silicon)[i].value<std::string>()) {
+				t0.silicon.push_back(*value);
+			}
+		}
+	}
+}
+
 void LoadStraightParticle(
 	const toml::table &table,
 	StraightParticleConfig &particle
@@ -147,6 +158,9 @@ void LoadPpac(const toml::table &table, PpacConfig &ppac) {
 
 void LoadDetector(const toml::table &table, const std::string &name, SquareDetectorConfig &detector) {
 	detector.name = name;
+	if (auto node = table["type"].value<std::string>()) {
+		detector.type = *node;
+	}
 	LoadDetectorInt(table, "front_strips", detector.front_strips);
 	LoadDetectorInt(table, "back_strips", detector.back_strips);
 	LoadDetectorDouble(table, "thickness_um", detector.thickness_um);
@@ -183,6 +197,9 @@ int LoadConfig(const std::string &path, AppConfig &config) {
 
 		if (const auto *paths = table["paths"].as_table()) {
 			LoadPaths(*paths, config.paths);
+		}
+		if (const auto *t0 = table["t0"].as_table()) {
+			LoadT0(*t0, config.t0);
 		}
 		if (const auto *track = table["track"].as_table()) {
 			LoadTrack(*track, config.track);
