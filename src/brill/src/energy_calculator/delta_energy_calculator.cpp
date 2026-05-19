@@ -28,18 +28,18 @@ bool ComparePairFirst(
 
 int CollectSiliconDetectors(
 	const brill::AppConfig &config,
-	std::vector<const brill::SquareDetectorConfig*> &detectors
+	std::vector<double> &thickness
 ) {
-	detectors.clear();
+	thickness.clear();
 	for (const auto &name : config.t0.silicon) {
 		const auto *detector = brill::FindDetectorConfig(config, name);
 		if (!detector) {
 			std::cerr << "Error: T0 silicon detector " << name << " not found in config.\n";
 			return -1;
 		}
-		detectors.push_back(detector);
+		thickness.push_back(detector->thickness_um);
 	}
-	if (detectors.size() < 2) {
+	if (thickness.size() < 2) {
 		std::cerr << "Error: Need at least 2 T0 silicon detectors in config.t0.silicon.\n";
 		return -1;
 	}
@@ -100,36 +100,13 @@ DeltaEnergyCalculator::DeltaEnergyCalculator(
 	int charge,
 	int mass
 )
-: config_(config)
-, charge_(charge)
-, mass_(mass)
-{
-	if (Load() != 0) {
-		if (Initialize(config_, charge_, mass_)) {
-			throw std::runtime_error("Initialize T0 delta energy calculator failed.");
-		}
-		if (Load() != 0) {
-			throw std::runtime_error("Load T0 delta energy calculator failed.");
-		}
-	}
-}
-
-DeltaEnergyCalculator::DeltaEnergyCalculator(
-	const std::string &config_path,
-	int charge,
-	int mass
-)
 : charge_(charge)
-, mass_(mass)
-{
-	if (LoadConfig(config_path, config_)) {
-		throw std::runtime_error("Load config for DeltaEnergyCalculator failed.");
-	}
-	if (Load() != 0) {
-		if (Initialize(config_, charge_, mass_)) {
+, mass_(mass) {
+	if (Load(config) != 0) {
+		if (Initialize(config, charge_, mass_)) {
 			throw std::runtime_error("Initialize T0 delta energy calculator failed.");
 		}
-		if (Load() != 0) {
+		if (Load(config) != 0) {
 			throw std::runtime_error("Load T0 delta energy calculator failed.");
 		}
 	}
@@ -150,8 +127,7 @@ int DeltaEnergyCalculator::Initialize(
 	int charge,
 	int mass
 ) {
-	std::vector<const SquareDetectorConfig*> detectors;
-	if (CollectSiliconDetectors(config, detectors)) return -1;
+	if (CollectSiliconDetectors(config, thickness_)) return -1;
 
 	std::filesystem::path path(
 		TString::Format(
@@ -180,11 +156,11 @@ int DeltaEnergyCalculator::Initialize(
 
 	std::vector<double> delta_energy;
 	std::vector<double> energy;
-	for (size_t i = 0; i + 1 < detectors.size(); ++i) {
+	for (size_t i = 0; i + 1 < thickness_.size(); ++i) {
 		if (BuildSliceFunctions(
 			calculator,
-			detectors[i]->thickness_um,
-			detectors[i + 1]->thickness_um,
+			thickness_[i],
+			thickness_[i+1],
 			delta_energy,
 			energy
 		)) {
@@ -234,27 +210,16 @@ int DeltaEnergyCalculator::Initialize(
 	return 0;
 }
 
-int DeltaEnergyCalculator::Initialize(
-	const std::string &config_path,
-	int charge,
-	int mass
-) {
-	AppConfig config;
-	if (LoadConfig(config_path, config)) return -1;
-	return Initialize(config, charge, mass);
-}
-
-int DeltaEnergyCalculator::Load() {
-	std::vector<const SquareDetectorConfig*> detectors;
-	if (CollectSiliconDetectors(config_, detectors)) return -1;
+int DeltaEnergyCalculator::Load(const AppConfig &config) {
+	if (CollectSiliconDetectors(config, thickness_)) return -1;
 
 	de_e_funcs_.clear();
 	e_de_funcs_.clear();
 
-	std::unique_ptr<TFile> file(TFile::Open(CachePath().c_str(), "read"));
+	std::unique_ptr<TFile> file(TFile::Open(CachePath(config).c_str(), "read"));
 	if (!file || file->IsZombie()) return -1;
 
-	for (size_t i = 0; i + 1 < detectors.size(); ++i) {
+	for (size_t i = 0; i + 1 < thickness_.size(); ++i) {
 		auto *de_e = dynamic_cast<TSpline3*>(file->Get(TString::Format("de_e_%zu", i)));
 		auto *e_de = dynamic_cast<TSpline3*>(file->Get(TString::Format("e_de_%zu", i)));
 		if (!de_e || !e_de) return -1;
@@ -269,10 +234,10 @@ int DeltaEnergyCalculator::Load() {
 	return 0;
 }
 
-std::string DeltaEnergyCalculator::CachePath() const {
+std::string DeltaEnergyCalculator::CachePath(const AppConfig &config) const {
 	return TString::Format(
 		"%s/t0_delta_z%d_a%d.root",
-		JoinPath(config_.workspace, config_.paths.energy_calculator).c_str(),
+		JoinPath(config.workspace, config.paths.energy_calculator).c_str(),
 		charge_,
 		mass_
 	).Data();

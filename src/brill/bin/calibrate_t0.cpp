@@ -262,11 +262,11 @@ int main(int argc, char **argv) {
 	std::printf("\b\b\b\b100%%\n");
 
 	double initial_calibration_parameters[12] = {
+		0.0, 0.002,
 		0.0, 0.006,
 		0.0, 0.006,
-		0.0, 0.006,
-		0.0, 0.006,
-		0.0, 0.03
+		0.0, 0.003,
+		0.0, 0.3
 	};
 
 	std::vector<std::pair<int, int>> projectiles {

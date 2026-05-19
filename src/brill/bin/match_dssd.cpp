@@ -144,12 +144,6 @@ int main(int argc, char **argv) {
 			}
 			ipt->GetEntry(entry);
 			brill::ApplyDssdNormalize(raw_event, parameters, normalized_event);
-			if (detector_name == "t0d4") {
-				for (int i = 0; i < normalized_event.back_num; ++i) {
-					normalized_event.back_strip[i] += 16;
-					normalized_event.back_strip[i] %= 32;
-				}
-			}
 			brill::MatchDssdEvent(normalized_event, working_detector, match_event);
 			opt.Fill();
 		}
