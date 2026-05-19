@@ -8,3 +8,14 @@ target_link_libraries(
 	rebuild_physics
 	ROOT::Hist
 )
+
+add_executable(rebuild_3alpha rebuild_3alpha.cpp)
+target_link_libraries(
+	rebuild_3alpha
+	PRIVATE
+	estimate_support
+	particle_event
+	energy_calculator
+	rebuild_physics
+	ROOT::Hist
+)
