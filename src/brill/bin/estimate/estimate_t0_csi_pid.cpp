@@ -88,7 +88,7 @@ int main(int argc, char **argv) {
 	chain_s.AddFriend(&chain_csi, "csi");
 
 	brill::SiliconEvent ssd;
-	brill::CsiEvent csi;
+	brill::CsiEvent<36> csi;
 	brill::SetupInput(&chain_s, ssd);
 	brill::SetupInput(&chain_s, csi, "csi.");
 

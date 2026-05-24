@@ -37,4 +37,10 @@ target_link_libraries(
 )
 
 add_executable(estimate_t0_csi_pid estimate_t0_csi_pid.cpp)
-target_link_libraries(estimate_t0_csi_pid PRIVATE config silicon_event csi_event ROOT::Graf)
+target_link_libraries(
+	estimate_t0_csi_pid
+	PRIVATE
+	config
+	silicon_event
+	ROOT::Graf
+)
