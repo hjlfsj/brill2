@@ -102,13 +102,13 @@ int main(int argc, char **argv) {
 		parameters.back_strips = detector->back_strips;
 		std::string normalize_dir = brill::JoinPath(config.workspace, config.paths.normalize);
 		TString front_path = TString::Format(
-			"%s/%s_front_%04d.root",
+			"%s/%s_front_%04d.txt",
 			normalize_dir.c_str(),
 			detector_name.c_str(),
 			normalize_file_run
 		);		
 		TString back_path = TString::Format(
-			"%s/%s_back_%04d.root",
+			"%s/%s_back_%04d.txt",
 			normalize_dir.c_str(),
 			detector_name.c_str(),
 			normalize_file_run

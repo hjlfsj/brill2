@@ -1,6 +1,6 @@
 workspace = "/data/disk1/delta"
 trigger = "t1"
-jump_run = [112, 1096]
+jump_run = [112, 1096, 1101, 1103, 1104, 1105]
 assets = "assets"
 
 [paths]
@@ -86,8 +86,10 @@ run = 1091
 use = 1091
 [[normalize.run]]
 run = 1097
+use = 1097
+[[normalize.run]]
+run = 1106
 use = 1106
-
 [[normalize.t0d1.strips]]
 index = 0
 norm_side = 1
