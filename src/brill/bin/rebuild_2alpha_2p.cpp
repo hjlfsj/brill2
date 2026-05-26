@@ -31,6 +31,12 @@ constexpr unsigned int kD2Offset = 0;
 constexpr unsigned int kD3Offset = 8;
 constexpr unsigned int kD4Offset = 16;
 constexpr int kParticleCount = 4;
+constexpr int kCalibrationLayers = 5;
+
+struct CalibrationParameters {
+	double p0[kCalibrationLayers] = {0.0, 0.0, 0.0, 0.0, 0.0};
+	double p1[kCalibrationLayers] = {1.0, 1.0, 1.0, 1.0, 1.0};
+};
 
 struct CutInfo {
 	std::string particle;
@@ -158,6 +164,37 @@ int BuildCut(
 
 void PrintUsage(const cxxopts::Options &options) {
 	std::cout << options.help() << "\n";
+}
+
+int ReadCalibrationParameters(
+	const std::string &path,
+	CalibrationParameters &parameters
+) {
+	std::ifstream fin(path);
+	if (!fin.good()) {
+		std::cerr << "Error: Open calibration parameter file " << path << " failed.\n";
+		return -1;
+	}
+
+	std::string header;
+	std::getline(fin, header);
+	int index = -1;
+	double p0 = 0.0;
+	double p1 = 1.0;
+	while (fin >> index >> p0 >> p1) {
+		if (index < 0 || index >= kCalibrationLayers) continue;
+		parameters.p0[index] = p0;
+		parameters.p1[index] = p1;
+	}
+	return 0;
+}
+
+double CalibrateEnergy(
+	const CalibrationParameters &parameters,
+	int layer,
+	double raw_energy
+) {
+	return parameters.p0[layer] + parameters.p1[layer] * raw_energy;
 }
 
 void BuildSlices(
@@ -404,6 +441,7 @@ bool RebuildParticle(
 	const brill::DssdMatchEvent &d2_event,
 	const brill::DssdMatchEvent &d3_event,
 	const brill::DssdMatchEvent &d4_event,
+	const CalibrationParameters &calibration,
 	const brill::AppConfig &config,
 	double d1_thickness_um,
 	double d2_thickness_um,
@@ -417,13 +455,22 @@ bool RebuildParticle(
 
 	for (int i = 0; i < 6; ++i) result.layer_energy[i] = 0.0;
 	double energy_before_d1 = 0.0;
+	const double d2_energy = particle.d2 >= 0
+		? CalibrateEnergy(calibration, 1, d2_event.energy[particle.d2])
+		: 0.0;
+	const double d3_energy = particle.d3 >= 0
+		? CalibrateEnergy(calibration, 2, d3_event.energy[particle.d3])
+		: 0.0;
+	const double d4_energy = particle.d4 >= 0
+		? CalibrateEnergy(calibration, 3, d4_event.energy[particle.d4])
+		: 0.0;
 
 	if (particle.layer == 3) {
 		if (particle.d3 < 0) return false;
-		result.layer_energy[2] = d3_event.energy[particle.d3];
-		double energy_before_d2 = d3_event.energy[particle.d3];
+		result.layer_energy[2] = d3_energy;
+		double energy_before_d2 = d3_energy;
 		if (particle.d2 >= 0) {
-			energy_before_d2 += d2_event.energy[particle.d2];
+			energy_before_d2 += d2_energy;
 		} else {
 			const auto *d2_calculator = GetLayerCalculator(
 				config,
@@ -446,12 +493,12 @@ bool RebuildParticle(
 		energy_before_d1 = d1_calculator->IncidentEnergy(energy_before_d2);
 	} else if (particle.layer == 4) {
 		if (particle.d4 < 0) return false;
-		result.layer_energy[3] = d4_event.energy[particle.d4];
-		double energy_before_d3 = d4_event.energy[particle.d4];
-		if (particle.d3 >= 0) energy_before_d3 += d3_event.energy[particle.d3];
+		result.layer_energy[3] = d4_energy;
+		double energy_before_d3 = d4_energy;
+		if (particle.d3 >= 0) energy_before_d3 += d3_energy;
 		double energy_before_d2 = energy_before_d3;
 		if (particle.d2 >= 0) {
-			energy_before_d2 += d2_event.energy[particle.d2];
+			energy_before_d2 += d2_energy;
 		} else {
 			const auto *d2_calculator = GetLayerCalculator(
 				config,
@@ -474,7 +521,7 @@ bool RebuildParticle(
 		energy_before_d1 = d1_calculator->IncidentEnergy(energy_before_d2);
 	} else if (particle.layer == 5) {
 		if (particle.d4 < 0) return false;
-		result.layer_energy[3] = d4_event.energy[particle.d4];
+		result.layer_energy[3] = d4_energy;
 		const auto *d4_calculator = GetLayerCalculator(
 			config,
 			particle.charge,
@@ -485,12 +532,12 @@ bool RebuildParticle(
 		if (!d4_calculator) return false;
 		double energy_before_d3 = RecoverIncidentEnergyFromDepositedLoss(
 			*d4_calculator,
-			d4_event.energy[particle.d4]
+			d4_energy
 		);
-		if (particle.d3 >= 0) energy_before_d3 += d3_event.energy[particle.d3];
+		if (particle.d3 >= 0) energy_before_d3 += d3_energy;
 		double energy_before_d2 = energy_before_d3;
 		if (particle.d2 >= 0) {
-			energy_before_d2 += d2_event.energy[particle.d2];
+			energy_before_d2 += d2_energy;
 		} else {
 			const auto *d2_calculator = GetLayerCalculator(
 				config,
@@ -559,6 +606,14 @@ int main(int argc, char **argv) {
 		config.trigger = result["trigger"].as<std::string>();
 	}
 	brill::SetAssetsPath(config.assets);
+	const std::string calibration_path = TString::Format(
+		"%s/t0.txt",
+		brill::JoinPath(config.workspace, config.paths.calibration).c_str()
+	).Data();
+	CalibrationParameters calibration;
+	if (ReadCalibrationParameters(calibration_path, calibration)) {
+		return 1;
+	}
 
 	const int run = result["run"].as<int>();
 	const int end_run = result.count("end-run") ? result["end-run"].as<int>() : run;
@@ -756,6 +811,7 @@ int main(int argc, char **argv) {
 				d2_event,
 				d3_event,
 				d4_event,
+				calibration,
 				config,
 				d1_detector->thickness_um,
 				d2_detector->thickness_um,
