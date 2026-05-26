@@ -1,4 +1,3 @@
-#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -28,7 +27,7 @@ constexpr unsigned int kD3Offset = 8;
 constexpr unsigned int kD4Offset = 16;
 constexpr unsigned int kSOffset = 24;
 
-struct TailCutInfo {
+struct ParticleCutInfo {
 	std::string particle;
 	int charge = 0;
 	int mass = 0;
@@ -79,6 +78,17 @@ struct D1D2Candidate {
 	double metric = 0.0;
 };
 
+const char *const kD1D2Particles[] = {"4He"};
+const char *const kD2D3Particles[] = {
+	"3He", "4He", "6Li", "7Li", "7Be", "9Be",
+	"10B", "11B", "10C", "11C", "12C", "13C"
+};
+const char *const kD3D4Particles[] = {
+	"3He", "4He", "6Li", "7Li", "7Be", "9Be",
+	"10B", "11B", "12B", "10C", "11C", "12C", "13C"
+};
+const char *const kD4SParticles[] = {"4He", "7Be"};
+
 struct D1ExtensionCandidate {
 	int particle = -1;
 	int d1 = -1;
@@ -112,10 +122,6 @@ double TrackMetric(
 	double right_y
 ) {
 	return std::fabs(right_x - left_x) + std::fabs(right_y - left_y);
-}
-
-double StraightEnergy(double de, double e, double a, double b) {
-	return std::sqrt(de * e + a * de * de) + b * e;
 }
 
 int ElementCharge(const std::string &element) {
@@ -187,36 +193,35 @@ int LoadTailCut(
 	return -1;
 }
 
-const brill::StraightParticleConfig *FindStraightParticle(
-	const brill::StraightSliceConfig &slice,
-	const std::string &particle
+int LoadStoppedCut(
+	const std::string &workspace,
+	const std::string &slice,
+	const std::string &particle,
+	std::unique_ptr<TCutG> &cut
 ) {
-	for (const auto &item : slice.particles) {
-		if (item.particle == particle) return &item;
+	if (!CutFileExists(workspace, slice, particle, false)) {
+		std::cerr
+			<< "Error: Missing stopped cut file for " << slice
+			<< " particle " << particle << ".\n";
+		return -1;
 	}
-	return nullptr;
+	return brill::ParseCutFile(workspace, slice, particle, false, cut);
 }
 
 void BuildStoppedDssdDssdSlices(
 	const brill::DssdMatchEvent &left,
 	const brill::DssdMatchEvent &right,
 	const brill::TrackWindowConfig &window,
-	const brill::StraightSliceConfig &straight,
+	const std::vector<ParticleCutInfo> &cuts,
 	int layer,
 	std::vector<Slice> &slices
 ) {
 	for (int i = 0; i < left.num; ++i) {
 		for (int j = 0; j < right.num; ++j) {
 			if (!InTrackWindow(left.x[i], left.y[i], right.x[j], right.y[j], window)) continue;
-			double ef = StraightEnergy(left.energy[i], right.energy[j], straight.A, straight.B);
-			for (const auto &particle : straight.particles) {
-				double low = particle.mean - particle.range * particle.sigma;
-				double high = particle.mean + particle.range * particle.sigma;
-				if (ef < low || ef > high) continue;
-				int charge = 0;
-				int mass = 0;
-				if (!ParseParticleName(particle.particle, charge, mass)) continue;
-				slices.push_back(Slice{layer, charge, mass, false, i, j});
+			for (const auto &cut : cuts) {
+				if (!cut.cut || !cut.cut->IsInside(right.energy[j], left.energy[i])) continue;
+				slices.push_back(Slice{layer, cut.charge, cut.mass, false, i, j});
 			}
 		}
 	}
@@ -226,7 +231,7 @@ void BuildTailDssdDssdSlices(
 	const brill::DssdMatchEvent &left,
 	const brill::DssdMatchEvent &right,
 	const brill::TrackWindowConfig &window,
-	const std::vector<TailCutInfo> &cuts,
+	const std::vector<ParticleCutInfo> &cuts,
 	int layer,
 	std::vector<Slice> &slices
 ) {
@@ -244,21 +249,15 @@ void BuildTailDssdDssdSlices(
 void BuildStoppedDssdSiliconSlices(
 	const brill::DssdMatchEvent &dssd,
 	const brill::SiliconEvent &silicon,
-	const brill::StraightSliceConfig &straight,
+	const std::vector<ParticleCutInfo> &cuts,
 	int layer,
 	std::vector<Slice> &slices
 ) {
 	if (!silicon.valid) return;
 	for (int i = 0; i < dssd.num; ++i) {
-		double ef = StraightEnergy(dssd.energy[i], silicon.energy, straight.A, straight.B);
-		for (const auto &particle : straight.particles) {
-			double low = particle.mean - particle.range * particle.sigma;
-			double high = particle.mean + particle.range * particle.sigma;
-			if (ef < low || ef > high) continue;
-			int charge = 0;
-			int mass = 0;
-			if (!ParseParticleName(particle.particle, charge, mass)) continue;
-			slices.push_back(Slice{layer, charge, mass, false, i, 0});
+		for (const auto &cut : cuts) {
+			if (!cut.cut || !cut.cut->IsInside(silicon.energy, dssd.energy[i])) continue;
+			slices.push_back(Slice{layer, cut.charge, cut.mass, false, i, 0});
 		}
 	}
 }
@@ -266,7 +265,7 @@ void BuildStoppedDssdSiliconSlices(
 void BuildTailDssdSiliconSlices(
 	const brill::DssdMatchEvent &dssd,
 	const brill::SiliconEvent &silicon,
-	const std::vector<TailCutInfo> &cuts,
+	const std::vector<ParticleCutInfo> &cuts,
 	int layer,
 	std::vector<Slice> &slices
 ) {
@@ -431,20 +430,41 @@ void SelectBestSubset(
 void BuildTailCuts(
 	const std::string &workspace,
 	const std::string &slice,
-	const brill::StraightSliceConfig &straight,
-	std::vector<TailCutInfo> &cuts
+	const char *const *particles,
+	size_t particle_count,
+	std::vector<ParticleCutInfo> &cuts
 ) {
 	cuts.clear();
 	std::set<std::string> loaded;
 	std::set<std::string> loaded_tail;
-	for (const auto &particle : straight.particles) {
-		if (loaded.count(particle.particle) != 0) continue;
-		loaded.insert(particle.particle);
-		TailCutInfo cut_info;
-		cut_info.particle = particle.particle;
+	for (size_t i = 0; i < particle_count; ++i) {
+		std::string particle = particles[i];
+		if (loaded.count(particle) != 0) continue;
+		loaded.insert(particle);
+		ParticleCutInfo cut_info;
+		cut_info.particle = particle;
 		if (!ParseParticleName(cut_info.particle, cut_info.charge, cut_info.mass)) continue;
 		if (LoadTailCut(workspace, slice, cut_info.particle, loaded_tail, cut_info.cut)) {
 			throw std::runtime_error("load tail cut failed");
+		}
+		cuts.push_back(std::move(cut_info));
+	}
+}
+
+void BuildStoppedCuts(
+	const std::string &workspace,
+	const std::string &slice,
+	const char *const *particles,
+	size_t particle_count,
+	std::vector<ParticleCutInfo> &cuts
+) {
+	cuts.clear();
+	for (size_t i = 0; i < particle_count; ++i) {
+		ParticleCutInfo cut_info;
+		cut_info.particle = particles[i];
+		if (!ParseParticleName(cut_info.particle, cut_info.charge, cut_info.mass)) continue;
+		if (LoadStoppedCut(workspace, slice, cut_info.particle, cut_info.cut)) {
+			throw std::runtime_error("load stopped cut failed");
 		}
 		cuts.push_back(std::move(cut_info));
 	}
@@ -566,34 +586,47 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
-	const brill::StraightSliceConfig *d1d2_straight =
-		brill::FindStraightSliceConfig(config, "t0d1d2");
-	const brill::StraightSliceConfig *d2d3_straight =
-		brill::FindStraightSliceConfig(config, "t0d2d3");
-	const brill::StraightSliceConfig *d3d4_straight =
-		brill::FindStraightSliceConfig(config, "t0d3d4");
-	const brill::StraightSliceConfig *d4s_straight =
-		brill::FindStraightSliceConfig(config, "t0d4s");
-	if (!d1d2_straight || !d2d3_straight || !d3d4_straight || !d4s_straight) {
-		std::cerr << "Error: Missing straight identify config.\n";
-		return 1;
-	}
-	const brill::StraightParticleConfig *d1d2_he4 =
-		FindStraightParticle(*d1d2_straight, "4He");
-	if (!d1d2_he4) {
-		std::cerr << "Error: Missing 4He straight identify window for t0d1d2.\n";
-		return 1;
-	}
-
-	std::vector<TailCutInfo> d1d2_tail_cuts;
-	std::vector<TailCutInfo> d2d3_tail_cuts;
-	std::vector<TailCutInfo> d3d4_tail_cuts;
-	std::vector<TailCutInfo> d4s_tail_cuts;
+	std::vector<ParticleCutInfo> d1d2_stop_cuts;
+	std::vector<ParticleCutInfo> d2d3_stop_cuts;
+	std::vector<ParticleCutInfo> d3d4_stop_cuts;
+	std::vector<ParticleCutInfo> d4s_stop_cuts;
+	std::vector<ParticleCutInfo> d1d2_tail_cuts;
+	std::vector<ParticleCutInfo> d2d3_tail_cuts;
+	std::vector<ParticleCutInfo> d3d4_tail_cuts;
+	std::vector<ParticleCutInfo> d4s_tail_cuts;
 	try {
-		BuildTailCuts(config.workspace, "t0d1d2", *d1d2_straight, d1d2_tail_cuts);
-		BuildTailCuts(config.workspace, "t0d2d3", *d2d3_straight, d2d3_tail_cuts);
-		BuildTailCuts(config.workspace, "t0d3d4", *d3d4_straight, d3d4_tail_cuts);
-		BuildTailCuts(config.workspace, "t0d4s", *d4s_straight, d4s_tail_cuts);
+		BuildStoppedCuts(
+			config.workspace, "t0d1d2", kD1D2Particles,
+			sizeof(kD1D2Particles) / sizeof(kD1D2Particles[0]), d1d2_stop_cuts
+		);
+		BuildStoppedCuts(
+			config.workspace, "t0d2d3", kD2D3Particles,
+			sizeof(kD2D3Particles) / sizeof(kD2D3Particles[0]), d2d3_stop_cuts
+		);
+		BuildStoppedCuts(
+			config.workspace, "t0d3d4", kD3D4Particles,
+			sizeof(kD3D4Particles) / sizeof(kD3D4Particles[0]), d3d4_stop_cuts
+		);
+		BuildStoppedCuts(
+			config.workspace, "t0d4s", kD4SParticles,
+			sizeof(kD4SParticles) / sizeof(kD4SParticles[0]), d4s_stop_cuts
+		);
+		BuildTailCuts(
+			config.workspace, "t0d1d2", kD1D2Particles,
+			sizeof(kD1D2Particles) / sizeof(kD1D2Particles[0]), d1d2_tail_cuts
+		);
+		BuildTailCuts(
+			config.workspace, "t0d2d3", kD2D3Particles,
+			sizeof(kD2D3Particles) / sizeof(kD2D3Particles[0]), d2d3_tail_cuts
+		);
+		BuildTailCuts(
+			config.workspace, "t0d3d4", kD3D4Particles,
+			sizeof(kD3D4Particles) / sizeof(kD3D4Particles[0]), d3d4_tail_cuts
+		);
+		BuildTailCuts(
+			config.workspace, "t0d4s", kD4SParticles,
+			sizeof(kD4SParticles) / sizeof(kD4SParticles[0]), d4s_tail_cuts
+		);
 	} catch (const std::runtime_error &) {
 		return 1;
 	}
@@ -684,18 +717,18 @@ int main(int argc, char **argv) {
 
 		std::vector<Slice> slices[3];
 		BuildStoppedDssdDssdSlices(
-			d2_event, d3_event, config.track.d3d2_window, *d2d3_straight, 0, slices[0]
+			d2_event, d3_event, config.track.d3d2_window, d2d3_stop_cuts, 0, slices[0]
 		);
 		BuildTailDssdDssdSlices(
 			d2_event, d3_event, config.track.d3d2_window, d2d3_tail_cuts, 0, slices[0]
 		);
 		BuildStoppedDssdDssdSlices(
-			d3_event, d4_event, config.track.d4d3_window, *d3d4_straight, 1, slices[1]
+			d3_event, d4_event, config.track.d4d3_window, d3d4_stop_cuts, 1, slices[1]
 		);
 		BuildTailDssdDssdSlices(
 			d3_event, d4_event, config.track.d4d3_window, d3d4_tail_cuts, 1, slices[1]
 		);
-		BuildStoppedDssdSiliconSlices(d4_event, s_event, *d4s_straight, 2, slices[2]);
+		BuildStoppedDssdSiliconSlices(d4_event, s_event, d4s_stop_cuts, 2, slices[2]);
 		BuildTailDssdSiliconSlices(d4_event, s_event, d4s_tail_cuts, 2, slices[2]);
 
 		std::vector<Chain> chains;
@@ -724,6 +757,18 @@ int main(int argc, char **argv) {
 		bool used_d4[kMaxHit] = {false};
 		MarkUsed(particles, used_d2, used_d3, used_d4);
 
+		std::unique_ptr<TCutG> he4_stop_cut;
+		for (const auto &cut : d1d2_stop_cuts) {
+			if (cut.particle == "4He" && cut.cut) {
+				he4_stop_cut.reset((TCutG*)cut.cut->Clone("t0d1d2_4He_use"));
+				break;
+			}
+		}
+		if (!he4_stop_cut) {
+			std::cerr << "Error: Missing usable t0d1d2 4He stopped cut.\n";
+			return 1;
+		}
+
 		std::vector<SelectionItem> d1d2_items;
 		std::vector<D1D2Candidate> d1d2_candidates;
 		for (int i = 0; i < d1_event.num; ++i) {
@@ -735,10 +780,7 @@ int main(int argc, char **argv) {
 				)) {
 					continue;
 				}
-				double ef = StraightEnergy(d1_event.energy[i], d2_event.energy[j], d1d2_straight->A, d1d2_straight->B);
-				double low = d1d2_he4->mean - d1d2_he4->range * d1d2_he4->sigma;
-				double high = d1d2_he4->mean + d1d2_he4->range * d1d2_he4->sigma;
-				if (ef < low || ef > high) continue;
+				if (!he4_stop_cut->IsInside(d2_event.energy[j], d1_event.energy[i])) continue;
 				double metric = TrackMetric(d1_event.x[i], d1_event.y[i], d2_event.x[j], d2_event.y[j]);
 				d1d2_candidates.push_back(D1D2Candidate{i, j, metric});
 				d1d2_items.push_back(SelectionItem{

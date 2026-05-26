@@ -30,6 +30,17 @@ target_link_libraries(
 	energy_calculator
 )
 
+add_executable(rebuild_2alpha_2p rebuild_2alpha_2p.cpp)
+target_link_libraries(
+	rebuild_2alpha_2p
+	PRIVATE
+	config
+	dssd_match_event
+	energy_calculator
+	rebuild_physics
+	ROOT::Graf
+)
+
 add_executable(calibrate_t0 calibrate_t0.cpp)
 target_link_libraries(
 	calibrate_t0
