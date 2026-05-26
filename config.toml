@@ -1,6 +1,6 @@
 workspace = "/data/disk1/delta"
 trigger = "t1"
-jump_run = [112, 1096, 1101, 1103, 1104, 1105]
+jump_run = [112, 1096, 1101, 1103, 1104, 1105, 1138, 1140, 1141, 1145, 1147]
 assets = "assets"
 
 [paths]
@@ -82,6 +82,9 @@ center_y_mm = 0.0
 z_mm = 0.0
 
 [[normalize.run]]
+run = 159
+use = 159
+[[normalize.run]]
 run = 1091
 use = 1091
 [[normalize.run]]
@@ -90,6 +93,9 @@ use = 1097
 [[normalize.run]]
 run = 1106
 use = 1106
+[[normalize.run]]
+run = 1107
+use = 1107
 [[normalize.t0d1.strips]]
 index = 0
 norm_side = 1
@@ -224,8 +230,8 @@ d3d2_window = [-4.0, 4.0]
 d4d3_window = [-5.0, 5.0]
 
 [identify.straight.t0d1d2]
-A = 0.1128
-B = -0.0738
+A = 0.1075
+B = -0.0744
 [[identify.straight.t0d1d2.particles]]
 particle = "4He"
 mean = 4060.3
@@ -233,8 +239,8 @@ sigma = 139.5
 range = 2.0
 
 [identify.straight.t0d2d3]
-A = 0.4656
-B = -0.0513
+A = 0.4490
+B = -0.0603
 [[identify.straight.t0d2d3.particles]]
 particle = "3He"
 mean = 5006
@@ -298,8 +304,8 @@ range = 1.0
 
 
 [identify.straight.t0d3d4]
-A = 0.7022
-B = -0.0491
+A = 0.6778
+B = -0.0580
 [[identify.straight.t0d3d4.particles]]
 particle = "3He"
 mean = 5317
@@ -368,8 +374,8 @@ range = 2.0
 
 
 [identify.straight.t0d4s]
-A = 0.9458
-B = -0.0429
+A = 0.9522
+B = -0.0413
 #[[identify.straight.t0d4s.particles]]
 #particle = "3He"
 #mean = 8355

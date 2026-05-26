@@ -59,7 +59,7 @@ struct ParticleCandidate {
 };
 
 struct RebuildResult {
-	double layer_energy = 0.0;
+	double layer_energy[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 	double kinetic = 0.0;
 	double total_energy = 0.0;
 	ROOT::Math::XYZVector direction;
@@ -414,12 +414,12 @@ bool RebuildParticle(
 ) {
 	if (!BuildDirection(particle, d2_event, d3_event, result.direction)) return false;
 
-	double layer_energy = 0.0;
+	for (int i = 0; i < 6; ++i) result.layer_energy[i] = 0.0;
 	double energy_before_d1 = 0.0;
 
 	if (particle.layer == 3) {
 		if (particle.d3 < 0) return false;
-		layer_energy = d3_event.energy[particle.d3];
+		result.layer_energy[2] = d3_event.energy[particle.d3];
 		double energy_before_d2 = d3_event.energy[particle.d3];
 		if (particle.d2 >= 0) {
 			energy_before_d2 += d2_event.energy[particle.d2];
@@ -445,7 +445,7 @@ bool RebuildParticle(
 		energy_before_d1 = d1_calculator->IncidentEnergy(energy_before_d2);
 	} else if (particle.layer == 4) {
 		if (particle.d4 < 0) return false;
-		layer_energy = d4_event.energy[particle.d4];
+		result.layer_energy[3] = d4_event.energy[particle.d4];
 		double energy_before_d3 = d4_event.energy[particle.d4];
 		if (particle.d3 >= 0) energy_before_d3 += d3_event.energy[particle.d3];
 		double energy_before_d2 = energy_before_d3;
@@ -473,7 +473,7 @@ bool RebuildParticle(
 		energy_before_d1 = d1_calculator->IncidentEnergy(energy_before_d2);
 	} else if (particle.layer == 5) {
 		if (particle.d4 < 0) return false;
-		layer_energy = d4_event.energy[particle.d4];
+		result.layer_energy[3] = d4_event.energy[particle.d4];
 		const auto *d4_calculator = GetLayerCalculator(
 			config,
 			particle.charge,
@@ -515,7 +515,6 @@ bool RebuildParticle(
 	}
 
 	double rest_mass = brill::GetMass(particle.charge, particle.mass);
-	result.layer_energy = layer_energy;
 	result.kinetic = energy_before_d1;
 	result.total_energy = rest_mass + energy_before_d1;
 	return energy_before_d1 > 0.0;
@@ -676,7 +675,7 @@ int main(int argc, char **argv) {
 	int charge[kParticleCount] = {0, 0, 0, 0};
 	int mass[kParticleCount] = {0, 0, 0, 0};
 	int layer[kParticleCount] = {0, 0, 0, 0};
-	double layer_energy[kParticleCount] = {0.0, 0.0, 0.0, 0.0};
+	double layer_energy[kParticleCount][6] = {0.0, 0.0, 0.0, 0.0};
 	double kinetic[kParticleCount] = {0.0, 0.0, 0.0, 0.0};
 	double energy[kParticleCount] = {0.0, 0.0, 0.0, 0.0};
 	double px[kParticleCount] = {0.0, 0.0, 0.0, 0.0};
@@ -687,7 +686,7 @@ int main(int argc, char **argv) {
 	opt.Branch("charge", charge, "Z[4]/I");
 	opt.Branch("mass", mass, "A[4]/I");
 	opt.Branch("layer", layer, "layer[4]/I");
-	opt.Branch("layer_energy", layer_energy, "le[4]/D");
+	opt.Branch("layer_energy", layer_energy, "le[4][6]/D");
 	opt.Branch("kinetic", kinetic, "k[4]/D");
 	opt.Branch("energy", energy, "e[4]/D");
 	opt.Branch("px", px, "px[4]/D");
@@ -720,7 +719,11 @@ int main(int argc, char **argv) {
 		std::fill_n(charge, kParticleCount, 0);
 		std::fill_n(mass, kParticleCount, 0);
 		std::fill_n(layer, kParticleCount, 0);
-		std::fill_n(layer_energy, kParticleCount, 0.0);
+		for (int i = 0; i < kParticleCount; ++i) {
+			for (int j = 0; j < 6; ++j) {
+				layer_energy[i][j] = 0.0;
+			}
+		}
 		std::fill_n(kinetic, kParticleCount, 0.0);
 		std::fill_n(energy, kParticleCount, 0.0);
 		std::fill_n(px, kParticleCount, 0.0);
@@ -764,7 +767,9 @@ int main(int argc, char **argv) {
 			charge[i] = particle.charge;
 			mass[i] = particle.mass;
 			layer[i] = particle.layer;
-			layer_energy[i] = rebuild.layer_energy;
+			for (int j = 0; j < 5; ++j) {
+				layer_energy[i][j] = rebuild.layer_energy[j];
+			}
 			kinetic[i] = rebuild.kinetic;
 			energy[i] = rebuild.total_energy;
 			px[i] = rebuild.direction.X();
