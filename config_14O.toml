@@ -1,5 +1,5 @@
-workspace = "/data/disk1/delta"
-trigger = "t1"
+workspace = "/data/disk1/ribll2026_www_data"
+trigger = "main"
 jump_run = [112, 1096, 1101, 1103, 1104, 1105, 1138, 1140, 1141, 1145, 1147]
 assets = "assets"
 

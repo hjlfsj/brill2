@@ -12,6 +12,7 @@
 #include <TGraph.h>
 #include <TString.h>
 #include <TF1.h>
+#include <TH1D.h>
 
 #include "external/cxxopts.hpp"
 #include "include/config.h"
@@ -42,7 +43,8 @@ int NormalizeStrips(
 	TChain &chain,
 	const brill::DssdEvent &event,
 	brill::DssdNormalizeParameters &parameters,
-	std::vector<bool> &has_normalized
+	std::vector<bool> &has_normalized,
+	std::string detector_name
 ) {
 	const int &side = config.norm_side;
 	const int offset = side * parameters.front_strips;
@@ -81,19 +83,22 @@ int NormalizeStrips(
 			// jump if not normalize strips
 			if (fs < config.norm[0] || fs > config.norm[1]) continue;
 			// jump if has normalized
-			if (has_normalized[fs]) continue;
+			// if (has_normalized[fs]) continue;
 			// jump if energy out of range
 			if (be < config.ref_energy[0] || be > config.ref_energy[1]) continue;
 			if (fe < config.norm_energy[0] || fe > config.norm_energy[1]) continue;
 			// fill to graph
 			ge[fs].AddPoint(fe, NormEnergy(parameters, 1, bs, be));
 		} else {
+			if (detector_name == "t0d3"){
+				if (((bs == 18) || (bs == 19)) && (fe > 12000)) continue;
+			}
 			// jump if not reference strips
 			if (fs < config.ref[0]|| fs > config.ref[1]) continue;
 			// jump if not normalize strips
 			if (bs < config.norm[0] || bs > config.norm[1]) continue;
 			// jump if has normalized
-			if (has_normalized[offset+bs]) continue;
+			// if (has_normalized[offset+bs]) continue;
 			// jump if energy out of range
 			if (fe < config.ref_energy[0] || fe > config.ref_energy[1]) continue;
 			if (be < config.norm_energy[0] || be > config.norm_energy[1]) continue;
@@ -112,9 +117,9 @@ int NormalizeStrips(
 	// fitting
 	std::cout << "side " << side << " normalize parameters.\n";
 	for (int i = config.norm[0]; i <= config.norm[1]; ++i) {
-		if (has_normalized[offset+i]) continue;
+		// if (has_normalized[offset+i]) continue;
 		// only fits when over 10 points
-		if (ge[i].GetN() > 5) {
+		if (ge[i].GetN() > 10) {
 			// fitting function
 			TF1 energy_fit("efit", "pol1", 0, 60000);
 			// set initial value
@@ -135,8 +140,11 @@ int NormalizeStrips(
 				//parameters.back_p2[i] = energy_fit.GetParameter(2);
 			}
 		}
+		else{
+			printf("side %d strip %d has less than 100 points.\n", side, i);
+		}
 		// store the graph
-		ge[i].Write(TString::Format("g%c%d", "fb"[side], i));
+		if (abs(config.norm[0]-config.norm[1]) == parameters.front_strips-1) ge[i].Write(TString::Format("g%c%d", "fb"[side], i));
 		// set as normalized
 		has_normalized[offset+i] = true;
 		// print normalized paramters on screen
@@ -145,28 +153,38 @@ int NormalizeStrips(
 				<< " " << parameters.front_p0[i]
 				<< ", " << parameters.front_p1[i]
 				<< ", " << parameters.front_p2[i]
+				<< ", " << ge[i].GetN()
 				<< "\n";
 		} else {
 			std::cout << i
 				<< " " << parameters.back_p0[i]
 				<< ", " << parameters.back_p1[i]
 				<< ", " << parameters.back_p2[i]
+				<< ", " << ge[i].GetN()
 				<< "\n";
 		}
 	}
 
 	// residual
-	TGraph res[128];
-	for (int i = config.norm[0]; i < config.norm[1]; ++i) {
-		if (has_normalized[offset+i]) continue;
-		int point = ge[i].GetN();
-		double *gex = ge[i].GetX();
-		double *gey = ge[i].GetY();
-		for (int j = 0; j < point; ++j) {
-			res[i].AddPoint(gex[j], NormEnergy(parameters, side, i, gex[j])-gey[j]);
+	TH1D res[128];
+	TH1D h_total_res = TH1D("h_total_res", "h_total_res", 1000, -5000.0, 5000.0);
+	if (abs(config.norm[0]-config.norm[1]) == parameters.front_strips-1){
+		for (int i = config.norm[0]; i <= config.norm[1]; ++i) {
+			res[i].Reset();
+			res[i] = TH1D(TString::Format("res%c%d", "fb"[side], i),TString::Format("res%c%d", "fb"[side], i) , 1000, -5000.0, 5000.0);
+			// if (has_normalized[offset+i]) continue;
+			int point = ge[i].GetN();
+			double *gex = ge[i].GetX();
+			double *gey = ge[i].GetY();
+			for (int j = 0; j < point; ++j) {
+				res[i].Fill(NormEnergy(parameters, side, i, gex[j])-gey[j]);
+				if (abs(config.ref[0]-config.ref[1]) == parameters.front_strips-1) h_total_res.Fill(NormEnergy(parameters, side, i, gex[j])-gey[j]);
+			}
+
+			res[i].Write(TString::Format("res%c%d", "fb"[side], i));
 		}
-		res[i].Write(TString::Format("res%c%d", "fb"[side], i));
 	}
+	h_total_res.Write("h_total_res");
 	return 0;
 
 }
@@ -175,7 +193,7 @@ void PrintUsage(const cxxopts::Options &options) {
 }
 
 int main(int argc, char **argv) {
-	cxxopts::Options options("match_dssd", "Match normalized DSSD events.");
+	cxxopts::Options options("./normalize", "Normalize DSSD events.");
 	options.add_options()
 		("h,help", "Print help information.")
 		("r,run", "Run number.", cxxopts::value<int>(), "run")
@@ -242,6 +260,8 @@ int main(int argc, char **argv) {
 			return 1;
 		}
 
+		if (detector_name == "t0d3") printf("special strips back 18, 19: abandon events with energy > 12000.\n");
+
 		TChain chain("tree");
 		int added_runs = 0;
 		for (int current_run = run; current_run <= end_run; ++current_run) {
@@ -296,19 +316,21 @@ int main(int argc, char **argv) {
 
 		opf.cd();
 		for (const auto &strips : strips_config) {
-			NormalizeStrips(strips, chain, raw_event, parameters, has_normalized);
+			NormalizeStrips(strips, chain, raw_event, parameters, has_normalized, detector_name);
 		}
 
 		TString front_path = TString::Format(
-			"%s/%s_front_%04d.txt",
+			"%s/%s_front_%s%04d.txt",
 			normalize_dir.c_str(),
 			detector_name.c_str(),
+			brill::TriggerInfix(config.trigger).c_str(),
 			run
 		);
 		TString back_path = TString::Format(
-			"%s/%s_back_%04d.txt",
+			"%s/%s_back_%s%04d.txt",
 			normalize_dir.c_str(),
 			detector_name.c_str(),
+			brill::TriggerInfix(config.trigger).c_str(),
 			run
 		);
 		if (brill::WriteDssdNormalizeParameters(
