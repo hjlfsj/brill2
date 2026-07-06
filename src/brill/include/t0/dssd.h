@@ -6,6 +6,8 @@
 #include "include/event/ingot/dssd_event.h"
 #include "include/event/t0/dssd_match_event.h"
 
+class TH1D;
+
 namespace brill {
 
 struct DssdNormalizeParameters {
@@ -48,7 +50,8 @@ void ApplyDssdNormalize(
 void MatchDssdEvent(
 	const DssdEvent &input,
 	const SquareDetectorConfig &detector,
-	DssdMatchEvent &output
+	DssdMatchEvent &output,
+	TH1D *h_energy_diff = nullptr
 );
 
 // void FillDssdPidHistogram(const DssdMergeEvent &left, const DssdMergeEvent &right, TH2F &hist);

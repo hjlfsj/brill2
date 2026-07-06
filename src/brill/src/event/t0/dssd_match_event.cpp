@@ -16,8 +16,8 @@ void SetupInput(TTree *tree, DssdMatchEvent &event, const std::string &prefix) {
 
 void SetupOutput(TTree *tree, DssdMatchEvent &event) {
 	tree->Branch("num", &event.num, "num/I");
-	tree->Branch("front_strip", event.front_strip, "fs[num]/I");
-	tree->Branch("back_strip", event.back_strip, "bs[num]/I");
+	tree->Branch("front_strip", event.front_strip, "fs[num]/D");
+	tree->Branch("back_strip", event.back_strip, "bs[num]/D");
 	tree->Branch("energy", event.energy, "e[num]/D");
 	tree->Branch("time", event.time, "t[num]/D");
 	tree->Branch("x", event.x, "x[num]/D");

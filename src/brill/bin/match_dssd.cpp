@@ -1,5 +1,7 @@
 #include "include/t0/dssd.h"
 
+#include <TH1D.h>
+
 #include <filesystem>
 #include <iostream>
 #include <set>
@@ -102,13 +104,13 @@ int main(int argc, char **argv) {
 		parameters.back_strips = detector->back_strips;
 		std::string normalize_dir = brill::JoinPath(config.workspace, config.paths.normalize);
 		TString front_path = TString::Format(
-			"%s/%s_front_%04d.txt",
+			"%s/%s_front_t1_%04d.txt",
 			normalize_dir.c_str(),
 			detector_name.c_str(),
 			normalize_file_run
 		);		
 		TString back_path = TString::Format(
-			"%s/%s_back_%04d.txt",
+			"%s/%s_back_t1_%04d.txt",
 			normalize_dir.c_str(),
 			detector_name.c_str(),
 			normalize_file_run
@@ -148,8 +150,11 @@ int main(int argc, char **argv) {
 		brill::DssdMatchEvent match_event;
 		brill::SetupOutput(&opt, match_event);
 
+		TH1D h_energy_diff("h_energy_diff", "Energy difference;Energy diff (channel);Counts",1000, 0.0, 2000.0);
+
 		long long total = ipt->GetEntries();
 		long long last_percentage = 0;
+		printf("Matching %s  with tolerance %.f\n", detector_name.c_str(), match_tolerance);
 		printf("Matching %s   0%%", detector_name.c_str());
 		fflush(stdout);
 		for (long long entry = 0; entry < total; ++entry) {
@@ -160,13 +165,14 @@ int main(int argc, char **argv) {
 			}
 			ipt->GetEntry(entry);
 			brill::ApplyDssdNormalize(raw_event, parameters, normalized_event);
-			brill::MatchDssdEvent(normalized_event, working_detector, match_event);
+			brill::MatchDssdEvent(normalized_event, working_detector, match_event, &h_energy_diff);
 			opt.Fill();
 		}
 		printf("\b\b\b\b100%%\n");
 
 		opf.cd();
 		opt.Write();
+		h_energy_diff.Write();
 		opf.Close();
 		ipf.Close();
 	}

@@ -1,6 +1,6 @@
 workspace = "/data/disk1/ribll2026_www_data"
 trigger = "t1"
-jump_run = [112, 1096, 1101, 1103, 1104, 1105, 1138, 1140, 1141, 1145, 1147]
+jump_run = [63, 112, 1096, 1101, 1103, 1104, 1105, 1138, 1140, 1141, 1145, 1147]
 assets = "assets"
 
 [paths]
@@ -34,7 +34,7 @@ size_y_mm = 64.0
 center_x_mm = 0.0
 center_y_mm = 0.0
 z_mm = 100.0
-match_tolerance = 200.0
+match_tolerance = 320.0
 
 [detectors.t0d2]
 type = "dssd"
@@ -46,7 +46,7 @@ size_y_mm = 64.0
 center_x_mm = 0.0
 center_y_mm = 0.0
 z_mm = 111.76
-match_tolerance = 150.0
+match_tolerance = 250.0
 
 [detectors.t0d3]
 type = "dssd"
@@ -58,7 +58,7 @@ size_y_mm = 64.0
 center_x_mm = 0.0
 center_y_mm = 0.0
 z_mm = 123.52
-match_tolerance = 150.0
+match_tolerance = 250.0
 
 [detectors.t0d4]
 type = "dssd"
@@ -70,7 +70,7 @@ size_y_mm = 64.0
 center_x_mm = 0.0
 center_y_mm = 0.0
 z_mm = 135.28
-match_tolerance = 100.0
+match_tolerance = 200.0
 
 [detectors.t0s]
 type = "ssd"
@@ -82,8 +82,8 @@ center_y_mm = 0.0
 z_mm = 0.0
 
 [[normalize.run]]
-run = 159
-use = 159
+run = 57
+use = 57
 [[normalize.run]]
 run = 1091
 use = 1091
@@ -132,33 +132,41 @@ norm_energy = [1000.0, 20000.0]
 index = 0
 norm_side = 1
 ref = [31, 31]
-norm = [30, 36]
-ref_energy = [1000.0, 60000.0]
-norm_energy = [1000.0, 60000.0]
+norm = [30, 46]
+ref_energy = [200.0, 60000.0]
+norm_energy = [200.0, 60000.0]
 
 [[normalize.t0d2.strips]]
 index = 1
 norm_side = 0
-ref = [30, 36]
-norm = [13, 42]
-ref_energy = [1000.0, 60000.0]
-norm_energy = [1000.0, 60000.0]
+ref = [30, 46]
+norm = [20, 40]
+ref_energy = [200.0, 60000.0]
+norm_energy = [200.0, 60000.0]
 
 [[normalize.t0d2.strips]]
 index = 2
 norm_side = 1
-ref = [13, 42]
-norm = [0, 63]
-ref_energy = [1000.0, 60000.0]
-norm_energy = [1000.0, 60000.0]
+ref = [20, 40]
+norm = [10, 50]
+ref_energy = [200.0, 60000.0]
+norm_energy = [200.0, 60000.0]
 
 [[normalize.t0d2.strips]]
 index = 3
 norm_side = 0
+ref = [10, 50]
+norm = [0, 63]
+ref_energy = [200.0, 60000.0]
+norm_energy = [200.0, 60000.0]
+
+[[normalize.t0d2.strips]]
+index = 4
+norm_side = 1
 ref = [0, 63]
 norm = [0, 63]
-ref_energy = [1000.0, 60000.0]
-norm_energy = [1000.0, 60000.0]
+ref_energy = [200.0, 60000.0]
+norm_energy = [200.0, 60000.0]
 
 [[normalize.t0d3.strips]]
 index = 0

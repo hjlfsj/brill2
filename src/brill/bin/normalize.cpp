@@ -77,6 +77,10 @@ int NormalizeStrips(
 		const double &fe = event.front_energy[0];
 		const double &be = event.back_energy[0];
 
+		if (detector_name == "t0d3"){
+				if (((bs == 18) || (bs == 19)) && (fe > 12000)) continue;
+			}
+		
 		if (config.norm_side == 0) {
 			// jump if not reference strips
 			if (bs < config.ref[0] || bs > config.ref[1]) continue;
@@ -90,9 +94,6 @@ int NormalizeStrips(
 			// fill to graph
 			ge[fs].AddPoint(fe, NormEnergy(parameters, 1, bs, be));
 		} else {
-			if (detector_name == "t0d3"){
-				if (((bs == 18) || (bs == 19)) && (fe > 12000)) continue;
-			}
 			// jump if not reference strips
 			if (fs < config.ref[0]|| fs > config.ref[1]) continue;
 			// jump if not normalize strips
@@ -114,6 +115,10 @@ int NormalizeStrips(
 	// show finish
 	printf("\b\b\b\b100%%\n");
 
+	std::vector<double> front_chi2(parameters.front_strips, 0.0);
+	std::vector<double> back_chi2(parameters.back_strips, 0.0);
+	std::vector<double> front_ndf(parameters.front_strips, 1.0);
+	std::vector<double> back_ndf(parameters.back_strips, 1.0);
 	// fitting
 	std::cout << "side " << side << " normalize parameters.\n";
 	for (int i = config.norm[0]; i <= config.norm[1]; ++i) {
@@ -134,17 +139,23 @@ int NormalizeStrips(
 				parameters.front_p0[i] = energy_fit.GetParameter(0);
 				parameters.front_p1[i] = energy_fit.GetParameter(1);
 				//parameters.front_p2[i] = energy_fit.GetParameter(2);
+				front_chi2[i] = energy_fit.GetChisquare();
+				front_ndf[i] = energy_fit.GetNDF();
 			} else {
 				parameters.back_p0[i] = energy_fit.GetParameter(0);
 				parameters.back_p1[i] = energy_fit.GetParameter(1);
 				//parameters.back_p2[i] = energy_fit.GetParameter(2);
+				back_chi2[i] = energy_fit.GetChisquare();
+				back_ndf[i] = energy_fit.GetNDF();
 			}
 		}
 		else{
 			printf("side %d strip %d has less than 100 points.\n", side, i);
 		}
 		// store the graph
-		if (abs(config.norm[0]-config.norm[1]) == parameters.front_strips-1) ge[i].Write(TString::Format("g%c%d", "fb"[side], i));
+		if (abs(config.norm[0]-config.norm[1]) == parameters.front_strips-1){
+			ge[i].Write(TString::Format("g%c%d", "fb"[side], i));
+		}
 		// set as normalized
 		has_normalized[offset+i] = true;
 		// print normalized paramters on screen
@@ -154,6 +165,7 @@ int NormalizeStrips(
 				<< ", " << parameters.front_p1[i]
 				<< ", " << parameters.front_p2[i]
 				<< ", " << ge[i].GetN()
+				<< ", " << front_chi2[i]/front_ndf[i]
 				<< "\n";
 		} else {
 			std::cout << i
@@ -161,6 +173,7 @@ int NormalizeStrips(
 				<< ", " << parameters.back_p1[i]
 				<< ", " << parameters.back_p2[i]
 				<< ", " << ge[i].GetN()
+				<< ", " << back_chi2[i]/back_ndf[i]
 				<< "\n";
 		}
 	}
@@ -168,6 +181,8 @@ int NormalizeStrips(
 	// residual
 	TH1D res[128];
 	TH1D h_total_res = TH1D("h_total_res", "h_total_res", 1000, -5000.0, 5000.0);
+	TGraph *g_front_chi2ndf = new TGraph();
+	TGraph *g_back_chi2ndf = new TGraph();
 	if (abs(config.norm[0]-config.norm[1]) == parameters.front_strips-1){
 		for (int i = config.norm[0]; i <= config.norm[1]; ++i) {
 			res[i].Reset();
@@ -180,11 +195,16 @@ int NormalizeStrips(
 				res[i].Fill(NormEnergy(parameters, side, i, gex[j])-gey[j]);
 				if (abs(config.ref[0]-config.ref[1]) == parameters.front_strips-1) h_total_res.Fill(NormEnergy(parameters, side, i, gex[j])-gey[j]);
 			}
-
+			if (side == 0) g_front_chi2ndf->AddPoint(i, front_chi2[i]/front_ndf[i]);
+			if (side == 1) g_back_chi2ndf->AddPoint(i, back_chi2[i]/back_ndf[i]);
 			res[i].Write(TString::Format("res%c%d", "fb"[side], i));
 		}
+		g_back_chi2ndf->SetLineColor(kRed);
+		g_front_chi2ndf->SetLineColor(kBlue);
+		if (side == 0) g_front_chi2ndf->Write("g_f_chi2ndf");
+		if (side == 1) g_back_chi2ndf->Write("g_b_chi2ndf");
+		h_total_res.Write("h_total_res");
 	}
-	h_total_res.Write("h_total_res");
 	return 0;
 
 }
@@ -265,15 +285,19 @@ int main(int argc, char **argv) {
 		TChain chain("tree");
 		int added_runs = 0;
 		for (int current_run = run; current_run <= end_run; ++current_run) {
-			if (brill::IsJumpRun(config, run)) continue;
+			if (brill::IsJumpRun(config, current_run)) {
+				std::cout << "Jump run " << current_run << ".\n";
+				continue;
+			}
 			++added_runs;
 			chain.Add(TString::Format(
 				"%s/%s_%s%04d.root",
 				brill::JoinPath(config.workspace, config.paths.ingot).c_str(),
 				detector_name.c_str(),
 				brill::TriggerInfix(config.trigger).c_str(),
-				run
+				current_run
 			));
+			std::cout << "Add run " << current_run << ".\n";
 		}
 		if (added_runs == 0) {
 			std::cout << "No runs to process after jumping runs.\n";

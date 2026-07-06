@@ -7,8 +7,8 @@ namespace brill {
 
 struct DssdMatchEvent {
 	int num = 0;
-	int front_strip[8] = {0};
-	int back_strip[8] = {0};
+	double front_strip[8] = {0.0};
+	double back_strip[8] = {0.0};
 	double energy[8] = {0.0};
 	double time[8] = {0.0};
 	double x[8] = {0.0};

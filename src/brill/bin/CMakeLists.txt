@@ -7,6 +7,7 @@ target_link_libraries(
 	PRIVATE
 	config
 	t0_dssd
+	ROOT::Hist
 )
 
 add_executable(track_t0 track_t0.cpp)
