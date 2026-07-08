@@ -10,6 +10,18 @@ target_link_libraries(
 	ROOT::Hist
 )
 
+add_executable(check_match check_match.cpp)
+target_link_libraries(
+	check_match
+	PRIVATE
+	config
+	t0_dssd
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gpad
+	ROOT::Gui
+)
+
 add_executable(track_t0 track_t0.cpp)
 target_link_libraries(
 	track_t0

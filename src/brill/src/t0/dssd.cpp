@@ -247,7 +247,8 @@ void AppendMatchResult(
 	double back_strip_val,
 	double energy_val,
 	double time_val,
-	int merge_tag_val
+	int merge_tag_val,
+	double energy_diff_val
 ) {
 	if (output.num >= 8) return;
 	int index = output.num++;
@@ -256,6 +257,7 @@ void AppendMatchResult(
 	output.energy[index] = energy_val;
 	output.time[index] = time_val;
 	output.merge_tag[index] = merge_tag_val;
+	output.energy_diff[index] = energy_diff_val;
 	FillPhysicalPosition(
 		detector,
 		front_strip_val,
@@ -282,13 +284,48 @@ bool MatchSimple(
 	const double *back_t = input.back_time;
 	double match_tolerance = detector.match_tolerance;
 
+	// sort front hits by strip number (ascending)
+	std::vector<int> sorted_front_strip(front_strip, front_strip + n_front);
+	std::vector<double> sorted_front_e(front_e, front_e + n_front);
+	std::vector<double> sorted_front_t(front_t, front_t + n_front);
+	for (int i = 0; i < n_front - 1; ++i) {
+		for (int j = i + 1; j < n_front; ++j) {
+			if (sorted_front_strip[j] < sorted_front_strip[i]) {
+				std::swap(sorted_front_strip[i], sorted_front_strip[j]);
+				std::swap(sorted_front_e[i], sorted_front_e[j]);
+				std::swap(sorted_front_t[i], sorted_front_t[j]);
+			}
+		}
+	}
+	front_strip = sorted_front_strip.data();
+	front_e = sorted_front_e.data();
+	front_t = sorted_front_t.data();
+
+	// sort back hits by strip number (ascending)
+	std::vector<int> sorted_back_strip(back_strip, back_strip + n_back);
+	std::vector<double> sorted_back_e(back_e, back_e + n_back);
+	std::vector<double> sorted_back_t(back_t, back_t + n_back);
+	for (int i = 0; i < n_back - 1; ++i) {
+		for (int j = i + 1; j < n_back; ++j) {
+			if (sorted_back_strip[j] < sorted_back_strip[i]) {
+				std::swap(sorted_back_strip[i], sorted_back_strip[j]);
+				std::swap(sorted_back_e[i], sorted_back_e[j]);
+				std::swap(sorted_back_t[i], sorted_back_t[j]);
+			}
+		}
+	}
+	back_strip = sorted_back_strip.data();
+	back_e = sorted_back_e.data();
+	back_t = sorted_back_t.data();
+
 	// 1f-1b matching
 	if (n_front == 1 && n_back == 1) {
 		if (std::fabs(front_e[0] - back_e[0]) < match_tolerance) {
-			if (h_energy_diff) h_energy_diff->Fill(std::fabs(front_e[0] - back_e[0]));
+			double diff = std::fabs(front_e[0] - back_e[0]);
+			if (h_energy_diff) h_energy_diff->Fill(diff);
 			AppendMatchResult(output, detector,
 				double(front_strip[0]), double(back_strip[0]),
-				front_e[0], front_t[0], 0);
+				front_e[0], front_t[0], 0, diff);
 			return true;
 		}
 		return false;
@@ -312,7 +349,7 @@ bool MatchSimple(
 			if (best_mode == 0 || best_mode == 1) {
 				AppendMatchResult(output, detector,
 					double(front_strip[best_mode]), double(back_strip[0]),
-					front_e[best_mode], front_t[best_mode], 0);
+					front_e[best_mode], front_t[best_mode], 0, min_diff);
 			} else if (best_mode == 2) {
 				bool adjacent = std::abs(front_strip[0] - front_strip[1]) == 1;
 				if (adjacent) {
@@ -321,14 +358,14 @@ bool MatchSimple(
 					AppendMatchResult(output, detector,
 						WeightedStrip(front_strip[0], front_e[0], front_strip[1], front_e[1]),
 						double(back_strip[0]),
-						front_e[0] + front_e[1], time_val, 2);
+						front_e[0] + front_e[1], time_val, 1, min_diff);
 				} else {
 					AppendMatchResult(output, detector,
 						double(front_strip[0]), double(back_strip[0]),
-						front_e[0], front_t[0], 0);
+						front_e[0], front_t[0], 2, std::fabs(front_e[0] - back_e[0]));
 					AppendMatchResult(output, detector,
 						double(front_strip[1]), double(back_strip[0]),
-						front_e[1], front_t[1], 0);
+						front_e[1], front_t[1], 2, std::fabs(front_e[1] - back_e[0]));
 				}
 			}
 			return true;
@@ -354,7 +391,7 @@ bool MatchSimple(
 			if (best_mode == 0 || best_mode == 1) {
 				AppendMatchResult(output, detector,
 					double(front_strip[0]), double(back_strip[best_mode]),
-					front_e[0], front_t[0], 0);
+					front_e[0], front_t[0], 0, min_diff);
 			} else if (best_mode == 2) {
 				bool adjacent = std::abs(back_strip[0] - back_strip[1]) == 1;
 				if (adjacent) {
@@ -363,16 +400,18 @@ bool MatchSimple(
 					AppendMatchResult(output, detector,
 						double(front_strip[0]),
 						WeightedStrip(back_strip[0], back_e[0], back_strip[1], back_e[1]),
-						front_e[0], front_t[0], 1);
+						front_e[0], front_t[0], 1, min_diff);
 				} else {
 					double frac_0 = back_e[0] / (back_e[0] + back_e[1]);
 					double frac_1 = back_e[1] / (back_e[0] + back_e[1]);
 					AppendMatchResult(output, detector,
 						double(front_strip[0]), double(back_strip[0]),
-						front_e[0] * frac_0, front_t[0], 0);
+						front_e[0] * frac_0, front_t[0], 2,
+						std::fabs(front_e[0] * frac_0 - back_e[0]));
 					AppendMatchResult(output, detector,
 						double(front_strip[0]), double(back_strip[1]),
-						front_e[0] * frac_1, front_t[0], 0);
+						front_e[0] * frac_1, front_t[0], 2,
+						std::fabs(front_e[0] * frac_1 - back_e[1]));
 				}
 			}
 			return true;
@@ -398,6 +437,23 @@ void MatchComplex(
 	const double *front_t = input.front_time;
 	const double *back_t = input.back_time;
 	double match_tolerance = detector.match_tolerance;
+
+	// sort front hits by strip number (ascending)
+	std::vector<int> sorted_front_strip(front_strip, front_strip + n_front);
+	std::vector<double> sorted_front_e(front_e, front_e + n_front);
+	std::vector<double> sorted_front_t(front_t, front_t + n_front);
+	for (int i = 0; i < n_front - 1; ++i) {
+		for (int j = i + 1; j < n_front; ++j) {
+			if (sorted_front_strip[j] < sorted_front_strip[i]) {
+				std::swap(sorted_front_strip[i], sorted_front_strip[j]);
+				std::swap(sorted_front_e[i], sorted_front_e[j]);
+				std::swap(sorted_front_t[i], sorted_front_t[j]);
+			}
+		}
+	}
+	front_strip = sorted_front_strip.data();
+	front_e = sorted_front_e.data();
+	front_t = sorted_front_t.data();
 
 	std::map<int, int> available_back;
 	for (int i = 0; i < n_back; ++i) {
@@ -488,7 +544,7 @@ void MatchComplex(
 				auto it = available_back.find(back_strip_1);
 				AppendMatchResult(output, detector,
 					double(front_strip[i]), double(back_strip[it->second]),
-					front_e[i], front_t[i], 0);
+					front_e[i], front_t[i], 0, min_diff);
 				available_back.erase(back_strip_1);
 			} else if (front_merge_mode == 0 && (back_merge_mode == 1 || back_merge_mode == 2)) {
 				auto it1 = available_back.find(back_strip_1);
@@ -501,7 +557,7 @@ void MatchComplex(
 				AppendMatchResult(output, detector,
 					double(front_strip[i]),
 					WeightedStrip(back_strip[it1->second], eb1, back_strip[it2->second], eb2),
-					front_e[i], front_t[i], 1);
+					front_e[i], front_t[i], 1, min_diff);
 				available_back.erase(back_strip_1);
 				available_back.erase(back_strip_2);
 			} else if ((front_merge_mode == 1 || front_merge_mode == 2) && back_merge_mode == 0) {
@@ -519,7 +575,7 @@ void MatchComplex(
 				AppendMatchResult(output, detector,
 					WeightedStrip(front_strip[i], ef1, front_strip[partner_idx], ef2),
 					double(back_strip[it->second]),
-					ef1 + ef2, time_val, 2);
+					ef1 + ef2, time_val, 2, min_diff);
 				available_back.erase(back_strip_1);
 			} else if ((front_merge_mode == 1 || front_merge_mode == 2) && (back_merge_mode == 1 || back_merge_mode == 2)) {
 				int partner_idx = i - 1;
@@ -540,7 +596,7 @@ void MatchComplex(
 				AppendMatchResult(output, detector,
 					WeightedStrip(front_strip[i], ef1, front_strip[partner_idx], ef2),
 					WeightedStrip(back_strip[it1->second], eb1, back_strip[it2->second], eb2),
-					ef1 + ef2, time_val, 3);
+					ef1 + ef2, time_val, 3, min_diff);
 				available_back.erase(back_strip_1);
 				available_back.erase(back_strip_2);
 			}
@@ -580,6 +636,7 @@ void MatchDssdEvent(
 				std::swap(output.energy[i], output.energy[j]);
 				std::swap(output.time[i], output.time[j]);
 				std::swap(output.merge_tag[i], output.merge_tag[j]);
+				std::swap(output.energy_diff[i], output.energy_diff[j]);
 				std::swap(output.x[i], output.x[j]);
 				std::swap(output.y[i], output.y[j]);
 				std::swap(output.z[i], output.z[j]);

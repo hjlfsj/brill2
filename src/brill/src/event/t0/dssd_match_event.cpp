@@ -12,6 +12,7 @@ void SetupInput(TTree *tree, DssdMatchEvent &event, const std::string &prefix) {
 	tree->SetBranchAddress((prefix + "y").c_str(), event.y);
 	tree->SetBranchAddress((prefix + "z").c_str(), event.z);
 	tree->SetBranchAddress((prefix + "merge_tag").c_str(), event.merge_tag);
+	tree->SetBranchAddress((prefix + "energy_diff").c_str(), event.energy_diff);
 }
 
 void SetupOutput(TTree *tree, DssdMatchEvent &event) {
@@ -24,6 +25,7 @@ void SetupOutput(TTree *tree, DssdMatchEvent &event) {
 	tree->Branch("y", event.y, "y[num]/D");
 	tree->Branch("z", event.z, "z[num]/D");
 	tree->Branch("merge_tag", event.merge_tag, "mt[num]/I");
+	tree->Branch("energy_diff", event.energy_diff, "ed[num]/D");
 }
 
 void Reset(DssdMatchEvent &event) {
