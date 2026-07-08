@@ -26,6 +26,7 @@
 #include <TGNumberEntry.h>
 #include <TGButton.h>
 #include <TGLayout.h>
+#include <TStyle.h>
 
 #include <filesystem>
 #include <iostream>
@@ -72,6 +73,12 @@ struct CheckContext {
 
 static CheckContext g_ctx;
 
+// GUI button flags — declared as C++ globals (not through interpreter)
+// to avoid cling JIT Calc() calls in the event loop that cause OOM over time
+volatile bool g_check_match_read = false;
+volatile bool g_check_match_next = false;
+volatile bool g_check_match_prev = false;
+
 void UpdateCanvas() {
 	const brill::DssdEvent &norm = *g_ctx.normalized_event;
 	const brill::DssdMatchEvent &match = *g_ctx.match_event;
@@ -100,6 +107,7 @@ void UpdateCanvas() {
 			g_ctx.h_input->Fill(fs, bs, be);
 		}
 	}
+	g_ctx.pad_input->SetLogz(true);
 	g_ctx.h_input->Draw("colz");
 
 	// Bottom-left: Output 2D (matched pairs)
@@ -111,6 +119,7 @@ void UpdateCanvas() {
 	for (int i = 0; i < match.num; ++i) {
 		g_ctx.h_output->Fill(match.front_strip[i], match.back_strip[i], match.energy[i]);
 	}
+	g_ctx.pad_output->SetLogz(true);
 	g_ctx.h_output->Draw("colz");
 
 	// Top-right: Input event details
@@ -334,9 +343,24 @@ int main(int argc, char **argv) {
 
 	TApplication app("check_match", nullptr, nullptr);
 
-	gInterpreter->ProcessLine("bool g_check_match_read = false;");
-	gInterpreter->ProcessLine("bool g_check_match_next = false;");
-	gInterpreter->ProcessLine("bool g_check_match_prev = false;");
+	gStyle->SetPalette(kRainBow);
+
+	// Register C++ global flags with the ROOT interpreter so that
+	// button SetCommand("g_check_match_read = true;") can find them.
+	// Declare() is called only once here — no OOM risk.
+	gInterpreter->Declare("#include <cstdint>");
+	gInterpreter->Declare(
+		TString::Format("volatile bool &g_check_match_read = *((volatile bool*)%lu);",
+			(unsigned long)&g_check_match_read).Data()
+	);
+	gInterpreter->Declare(
+		TString::Format("volatile bool &g_check_match_next = *((volatile bool*)%lu);",
+			(unsigned long)&g_check_match_next).Data()
+	);
+	gInterpreter->Declare(
+		TString::Format("volatile bool &g_check_match_prev = *((volatile bool*)%lu);",
+			(unsigned long)&g_check_match_prev).Data()
+	);
 
 	TString canvas_title = TString::Format(
 		"check_match - Run %d, Trigger %s, Detector %s, Tol %.0f",
@@ -476,12 +500,8 @@ int main(int argc, char **argv) {
 	while (!should_exit) {
 		gSystem->ProcessEvents();
 
-		Longptr_t val_read = gInterpreter->Calc("g_check_match_read");
-		Longptr_t val_next = gInterpreter->Calc("g_check_match_next");
-		Longptr_t val_prev = gInterpreter->Calc("g_check_match_prev");
-
-		if (val_read != 0) {
-			gInterpreter->ProcessLine("g_check_match_read = false;");
+		if (g_check_match_read) {
+			g_check_match_read = false;
 			long long requested = entry_entry->GetIntNumber();
 			if (requested >= 0 && requested < total) {
 				current_entry = requested;
@@ -496,8 +516,8 @@ int main(int argc, char **argv) {
 			}
 		}
 
-		if (val_next != 0) {
-			gInterpreter->ProcessLine("g_check_match_next = false;");
+		if (g_check_match_next) {
+			g_check_match_next = false;
 			current_entry++;
 			ProcessEvent();
 			if (current_entry >= total) {
@@ -509,8 +529,8 @@ int main(int argc, char **argv) {
 			}
 		}
 
-		if (val_prev != 0) {
-			gInterpreter->ProcessLine("g_check_match_prev = false;");
+		if (g_check_match_prev) {
+			g_check_match_prev = false;
 			current_entry--;
 			ProcessEventBackward();
 			if (current_entry < 0) {
