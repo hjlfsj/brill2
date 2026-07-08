@@ -119,7 +119,7 @@ void UpdateCanvas() {
 	int min_front = g_ctx.entry_min_front->GetIntNumber();
 	int min_back = g_ctx.entry_min_back->GetIntNumber();
 	if (min_front > 0 || min_back > 0) {
-		g_ctx.info_input->AddText(TString::Format("INPUT EVENT %lld/%lld  Filter: f>=%d b>=%d",
+		g_ctx.info_input->AddText(TString::Format("INPUT EVENT %lld/%lld  Filter: front>=%d back>=%d",
 			current_entry, total, min_front, min_back));
 	} else {
 		g_ctx.info_input->AddText(TString::Format("INPUT EVENT %lld/%lld", current_entry, total));
@@ -201,6 +201,27 @@ bool PassFilter() {
 	if (min_front <= 0 && min_back <= 0) return true;
 	return (g_ctx.normalized_event->front_num >= min_front &&
 		g_ctx.normalized_event->back_num >= min_back);
+}
+
+void ProcessEventBackward() {
+	long long &current_entry = *g_ctx.current_entry;
+	if (current_entry < 0) {
+		current_entry = 0;
+		return;
+	}
+	while (current_entry >= 0) {
+		g_ctx.ipt->GetEntry(current_entry);
+		brill::ApplyDssdNormalize(*g_ctx.raw_event, *g_ctx.parameters, *g_ctx.normalized_event);
+		if (PassFilter()) break;
+		current_entry--;
+	}
+	if (current_entry < 0) {
+		return;
+	}
+	brill::MatchDssdEvent(*g_ctx.normalized_event, *g_ctx.working_detector,
+		*g_ctx.match_event, nullptr);
+	UpdateCanvas();
+	PrintEvent();
 }
 
 void ProcessEvent() {
@@ -315,6 +336,7 @@ int main(int argc, char **argv) {
 
 	gInterpreter->ProcessLine("bool g_check_match_read = false;");
 	gInterpreter->ProcessLine("bool g_check_match_next = false;");
+	gInterpreter->ProcessLine("bool g_check_match_prev = false;");
 
 	TString canvas_title = TString::Format(
 		"check_match - Run %d, Trigger %s, Detector %s, Tol %.0f",
@@ -334,7 +356,7 @@ int main(int argc, char **argv) {
 	ctrl_frame->AddFrame(entry_entry,
 		new TGLayoutHints(kLHintsLeft | kLHintsCenterY, 2, 5, 5, 5));
 
-	ctrl_frame->AddFrame(new TGLabel(ctrl_frame, "  f≥:"),
+	ctrl_frame->AddFrame(new TGLabel(ctrl_frame, "  min-front-hit:"),
 		new TGLayoutHints(kLHintsLeft | kLHintsCenterY, 8, 2, 5, 5));
 
 	TGNumberEntry *entry_min_front = new TGNumberEntry(ctrl_frame, 0, 2, -1,
@@ -344,7 +366,7 @@ int main(int argc, char **argv) {
 	ctrl_frame->AddFrame(entry_min_front,
 		new TGLayoutHints(kLHintsLeft | kLHintsCenterY, 2, 5, 5, 5));
 
-	ctrl_frame->AddFrame(new TGLabel(ctrl_frame, "  b≥:"),
+	ctrl_frame->AddFrame(new TGLabel(ctrl_frame, "  min-back-hit:"),
 		new TGLayoutHints(kLHintsLeft | kLHintsCenterY, 5, 2, 5, 5));
 
 	TGNumberEntry *entry_min_back = new TGNumberEntry(ctrl_frame, 0, 2, -1,
@@ -362,6 +384,11 @@ int main(int argc, char **argv) {
 	TGTextButton *next_btn = new TGTextButton(ctrl_frame, "Next");
 	next_btn->SetCommand("g_check_match_next = true;");
 	ctrl_frame->AddFrame(next_btn,
+		new TGLayoutHints(kLHintsLeft | kLHintsCenterY, 5, 5, 5, 5));
+
+	TGTextButton *prev_btn = new TGTextButton(ctrl_frame, "Prev");
+	prev_btn->SetCommand("g_check_match_prev = true;");
+	ctrl_frame->AddFrame(prev_btn,
 		new TGLayoutHints(kLHintsLeft | kLHintsCenterY, 5, 5, 5, 5));
 
 	ctrl_frame->AddFrame(new TGLabel(ctrl_frame, "  q=quit"),
@@ -440,8 +467,8 @@ int main(int argc, char **argv) {
 
 	ProcessEvent();
 
-	printf("\nControls: <Enter> = next matching, 'q' = quit, 'n<N>' = goto N, or use GUI\n");
-	printf("Press <Enter> for next event, 'q' + <Enter> to quit: ");
+	printf("\nControls: <Enter> = next matching, 'p' = previous, 'q' = quit, 'n<N>' = goto N, or use GUI\n");
+	printf("Press <Enter> for next event, 'p' + <Enter> for previous, 'q' + <Enter> to quit: ");
 	fflush(stdout);
 
 	bool should_exit = false;
@@ -451,6 +478,7 @@ int main(int argc, char **argv) {
 
 		Longptr_t val_read = gInterpreter->Calc("g_check_match_read");
 		Longptr_t val_next = gInterpreter->Calc("g_check_match_next");
+		Longptr_t val_prev = gInterpreter->Calc("g_check_match_prev");
 
 		if (val_read != 0) {
 			gInterpreter->ProcessLine("g_check_match_read = false;");
@@ -463,7 +491,7 @@ int main(int argc, char **argv) {
 				should_exit = true;
 			} else {
 				entry_entry->SetIntNumber(current_entry);
-				printf("\nPress <Enter> for next event, 'q' + <Enter> to quit: ");
+				printf("\nPress <Enter> for next event, 'p' + <Enter> for previous, 'q' + <Enter> to quit: ");
 				fflush(stdout);
 			}
 		}
@@ -476,7 +504,22 @@ int main(int argc, char **argv) {
 				should_exit = true;
 			} else {
 				entry_entry->SetIntNumber(current_entry);
-				printf("\nPress <Enter> for next event, 'q' + <Enter> to quit: ");
+				printf("\nPress <Enter> for next event, 'p' + <Enter> for previous, 'q' + <Enter> to quit: ");
+				fflush(stdout);
+			}
+		}
+
+		if (val_prev != 0) {
+			gInterpreter->ProcessLine("g_check_match_prev = false;");
+			current_entry--;
+			ProcessEventBackward();
+			if (current_entry < 0) {
+				printf("\nNo more events before current.\n");
+				current_entry = 0;
+				should_exit = true;
+			} else {
+				entry_entry->SetIntNumber(current_entry);
+				printf("\nPress <Enter> for next event, 'p' + <Enter> for previous, 'q' + <Enter> to quit: ");
 				fflush(stdout);
 			}
 		}
@@ -493,6 +536,18 @@ int main(int argc, char **argv) {
 				should_exit = true;
 			} else if (line[0] == 'q' || line[0] == 'Q') {
 				should_exit = true;
+			} else if (line[0] == 'p' || line[0] == 'P') {
+				current_entry--;
+				ProcessEventBackward();
+				if (current_entry < 0) {
+					printf("\nNo more events before current.\n");
+					current_entry = 0;
+					should_exit = true;
+				} else {
+					entry_entry->SetIntNumber(current_entry);
+					printf("\nPress <Enter> for next event, 'p' + <Enter> for previous, 'q' + <Enter> to quit: ");
+					fflush(stdout);
+				}
 			} else if (line[0] == 'n' || line[0] == 'N') {
 				long long req = atoll(line + 1);
 				if (req >= 0 && req < total) {
@@ -502,12 +557,12 @@ int main(int argc, char **argv) {
 						should_exit = true;
 					} else {
 						entry_entry->SetIntNumber(current_entry);
-						printf("\nPress <Enter> for next event, 'q' + <Enter> to quit: ");
+						printf("\nPress <Enter> for next event, 'p' + <Enter> for previous, 'q' + <Enter> to quit: ");
 						fflush(stdout);
 					}
 				} else {
 					printf("Invalid entry %lld. Range: 0-%lld\n", req, total - 1);
-					printf("\nPress <Enter> for next event, 'q' + <Enter> to quit: ");
+					printf("\nPress <Enter> for next event, 'p' + <Enter> for previous, 'q' + <Enter> to quit: ");
 					fflush(stdout);
 				}
 				continue;
@@ -518,7 +573,7 @@ int main(int argc, char **argv) {
 					should_exit = true;
 				} else {
 					entry_entry->SetIntNumber(current_entry);
-					printf("\nPress <Enter> for next event, 'q' + <Enter> to quit: ");
+					printf("\nPress <Enter> for next event, 'p' + <Enter> for previous, 'q' + <Enter> to quit: ");
 					fflush(stdout);
 				}
 			}
