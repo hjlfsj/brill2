@@ -1,4 +1,5 @@
 #include "include/t0/dssd.h"
+#include "include/event/t0/dssd_match.h"
 
 #include <TH1D.h>
 
@@ -102,55 +103,6 @@ void SortHits(int &num, int *strip, double *energy, double *time) {
 	}
 }
 
-double StripPosition(double center, double size, int strips, double strip) {
-	return center + size * ((strip + 0.5) / double(strips) - 0.5);
-}
-
-double WeightedStrip(int strip0, double energy0, int strip1, double energy1) {
-	if (energy0 * 0.1 > energy1) return double(strip0);
-	// std::cout << "WeightedStrip: " << strip0 << " " << energy0 << " " << strip1 << " " << energy1 << "\n";
-	// std::cout << "WeightedStrip: " << 0.5 * double(strip0 + strip1) << "\n";
-	return 0.5 * double(strip0 + strip1);
-}
-
-void FillPhysicalPosition(
-	const SquareDetectorConfig &detector,
-	double front_strip,
-	double back_strip,
-	double &x,
-	double &y,
-	double &z
-) {
-	if (detector.name == "t0d2") {
-		x = StripPosition(
-			detector.center_x_mm,
-			detector.size_x_mm,
-			detector.back_strips,
-			back_strip
-		);
-		y = StripPosition(
-			detector.center_y_mm,
-			detector.size_y_mm,
-			detector.front_strips,
-			63-front_strip
-		);
-	} else {
-		x = StripPosition(
-			detector.center_x_mm,
-			detector.size_x_mm,
-			detector.front_strips,
-			front_strip
-		);
-		y = StripPosition(
-			detector.center_y_mm,
-			detector.size_y_mm,
-			detector.back_strips,
-			back_strip
-		);
-	}
-	z = detector.z_mm;
-}
-
 } // namespace
 
 int WriteDssdNormalizeParameters(
@@ -239,34 +191,6 @@ void ApplyDssdNormalize(
 }
 
 namespace {
-
-void AppendMatchResult(
-	DssdMatchEvent &output,
-	const SquareDetectorConfig &detector,
-	double front_strip_val,
-	double back_strip_val,
-	double energy_val,
-	double time_val,
-	int merge_tag_val,
-	double energy_diff_val
-) {
-	if (output.num >= 8) return;
-	int index = output.num++;
-	output.front_strip[index] = front_strip_val;
-	output.back_strip[index] = back_strip_val;
-	output.energy[index] = energy_val;
-	output.time[index] = time_val;
-	output.merge_tag[index] = merge_tag_val;
-	output.energy_diff[index] = energy_diff_val;
-	FillPhysicalPosition(
-		detector,
-		front_strip_val,
-		back_strip_val,
-		output.x[index],
-		output.y[index],
-		output.z[index]
-	);
-}
 
 bool MatchSimple(
 	const DssdEvent &input,
@@ -362,10 +286,10 @@ bool MatchSimple(
 				} else {
 					AppendMatchResult(output, detector,
 						double(front_strip[0]), double(back_strip[0]),
-						front_e[0], front_t[0], 2, std::fabs(front_e[0] - back_e[0]));
+						front_e[0], front_t[0], 3, std::fabs(front_e[0] - back_e[0]));
 					AppendMatchResult(output, detector,
 						double(front_strip[1]), double(back_strip[0]),
-						front_e[1], front_t[1], 2, std::fabs(front_e[1] - back_e[0]));
+						front_e[1], front_t[1], 3, std::fabs(front_e[1] - back_e[0]));
 				}
 			}
 			return true;
@@ -395,8 +319,6 @@ bool MatchSimple(
 			} else if (best_mode == 2) {
 				bool adjacent = std::abs(back_strip[0] - back_strip[1]) == 1;
 				if (adjacent) {
-					double time_val = back_t[0];
-					if (back_e[1] > back_e[0]) time_val = back_t[1];
 					AppendMatchResult(output, detector,
 						double(front_strip[0]),
 						WeightedStrip(back_strip[0], back_e[0], back_strip[1], back_e[1]),
@@ -406,11 +328,11 @@ bool MatchSimple(
 					double frac_1 = back_e[1] / (back_e[0] + back_e[1]);
 					AppendMatchResult(output, detector,
 						double(front_strip[0]), double(back_strip[0]),
-						front_e[0] * frac_0, front_t[0], 2,
+						front_e[0] * frac_0, front_t[0], 3,
 						std::fabs(front_e[0] * frac_0 - back_e[0]));
 					AppendMatchResult(output, detector,
 						double(front_strip[0]), double(back_strip[1]),
-						front_e[0] * frac_1, front_t[0], 2,
+						front_e[0] * frac_1, front_t[0], 3,
 						std::fabs(front_e[0] * frac_1 - back_e[1]));
 				}
 			}
@@ -551,8 +473,6 @@ void MatchComplex(
 				auto it2 = available_back.find(back_strip_2);
 				double eb1 = back_e[it1->second];
 				double eb2 = back_e[it2->second];
-				double time_val = back_t[it1->second];
-				if (eb2 > eb1) time_val = back_t[it2->second];
 
 				AppendMatchResult(output, detector,
 					double(front_strip[i]),
@@ -625,7 +545,7 @@ void MatchDssdEvent(
 	MatchSimple(input, detector, output, h_energy_diff);
 
 	if (output.num == 0) {
-		MatchComplex(input, detector, output, h_energy_diff);
+		MatchComplex_v1(input, detector, output, h_energy_diff);
 	}
 
 	for (int i = 0; i < output.num - 1; ++i) {

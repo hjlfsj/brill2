@@ -214,23 +214,27 @@ int main(int argc, char **argv) {
 				fflush(stdout);
 			}
 			input_tree->GetEntry(entry);
-			brill::ApplyDssdNormalize(raw_event, parameters, normalized_event);
-			RemoveAdjacentStrips(normalized_event);
-			for (
-				int i = 0;
-				i < normalized_event.front_num && i < normalized_event.back_num;
-				++i
-			) {
-				if (normalized_event.front_energy[i] == 0 || normalized_event.back_energy[i] == 0) continue;
-				hist.Fill(normalized_event.front_energy[i] - normalized_event.back_energy[i]);
+			// brill::ApplyDssdNormalize(raw_event, parameters, normalized_event);
+			// RemoveAdjacentStrips(normalized_event);
+			// for (
+			// 	int i = 0;
+			// 	i < normalized_event.front_num && i < normalized_event.back_num;
+			// 	++i
+			// ) {
+			// 	if (normalized_event.front_energy[i] == 0 || normalized_event.back_energy[i] == 0) continue;
+			// 	hist.Fill(normalized_event.front_energy[i] - normalized_event.back_energy[i]);
+			// }
+			if (raw_event.front_num == 1 && raw_event.back_num == 1){
+				brill::ApplyDssdNormalize(raw_event, parameters, normalized_event);
+				hist.Fill(normalized_event.front_energy[0] - normalized_event.back_energy[0]);
+				opt.Fill();
 			}
-			opt.Fill();
 		}
 		printf("\b\b\b\b100%%\n");
 
 		output_file.cd();
 		hist.Write();
-		opt.Write();
+		// opt.Write();
 		output_file.Close();
 		input_file.Close();
 	}

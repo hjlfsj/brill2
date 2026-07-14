@@ -12,6 +12,7 @@ target_link_libraries(
 	t0_dssd
 	PUBLIC
 	dssd_event
+	dssd_match
 	dssd_match_event
 	ROOT::Core
 	ROOT::RIO
