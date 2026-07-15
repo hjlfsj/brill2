@@ -1,6 +1,20 @@
 add_executable(normalize normalize.cpp)
 target_link_libraries(normalize PRIVATE config dssd_event t0_dssd ROOT::Graf)
 
+add_executable(ppac_normalize ppac_normalize.cpp)
+target_link_libraries(
+	ppac_normalize
+	PRIVATE
+	config
+	ppac_event
+	ROOT::Spectrum
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gpad
+)
+
 add_executable(match_dssd match_dssd.cpp)
 target_link_libraries(
 	match_dssd

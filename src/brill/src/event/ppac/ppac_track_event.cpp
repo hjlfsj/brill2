@@ -1,6 +1,6 @@
-#include "include/event/analysis/ppac_track_event.h"
+#include "include/event/ppac/ppac_track_event.h"
 
-namespace glimmer {
+namespace brill {
 
 void SetupInput(TTree *tree, PpacTrackEvent &event, const std::string &prefix) {
 	tree->SetBranchAddress((prefix + "valid").c_str(), &event.valid);

@@ -7,6 +7,15 @@ target_link_libraries(
 	ROOT::Graf
 )
 
+add_executable(estimate_normalize_total_energy estimate_normalize_total_energy.cpp)
+target_link_libraries(
+	estimate_normalize_total_energy
+	PRIVATE
+	config
+	t0_dssd
+	ROOT::Graf
+)
+
 add_executable(estimate_t0_center estimate_t0_center.cpp)
 target_link_libraries(
 	estimate_t0_center

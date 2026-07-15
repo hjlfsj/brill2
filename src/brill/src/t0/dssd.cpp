@@ -284,13 +284,18 @@ bool MatchSimple(
 						double(back_strip[0]),
 						front_e[0] + front_e[1], time_val, 1, min_diff);
 				} else {
-					AppendMatchResult(output, detector,
-						double(front_strip[0]), double(back_strip[0]),
-						front_e[0], front_t[0], 3, std::fabs(front_e[0] - back_e[0]));
-					AppendMatchResult(output, detector,
-						double(front_strip[1]), double(back_strip[0]),
-						front_e[1], front_t[1], 3, std::fabs(front_e[1] - back_e[0]));
-				}
+				double frac0 = front_e[0] / (front_e[0] + front_e[1]);
+				double frac1 = front_e[1] / (front_e[0] + front_e[1]);
+				double e0 = back_e[0] * frac0;
+				double e1 = back_e[0] * frac1;
+
+				AppendMatchResult(output, detector,
+					double(front_strip[0]), double(back_strip[0]),
+					e0, front_t[0], 3, std::fabs(e0 - front_e[0]));
+				AppendMatchResult(output, detector,
+					double(front_strip[1]), double(back_strip[0]),
+					e1, front_t[1], 3, std::fabs(e1 - front_e[1]));
+			}
 			}
 			return true;
 		}

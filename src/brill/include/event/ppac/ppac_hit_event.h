@@ -4,9 +4,10 @@
 
 #include <TTree.h>
 
-#include "include/analysis/config.h"
+#include "include/config.h"
 
-namespace glimmer {
+namespace brill {
+
 
 struct PpacHitEvent {
 	int valid[kMaxPpac] = {0};
