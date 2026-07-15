@@ -132,7 +132,9 @@ bool FitPositionLinear(TGraph *gr, double &p0, double &p1, double &chi2, double 
 
 int CalibratePpacOffset(
 	TChain &chain,
-	PpacOffsetResult results[3]
+	PpacOffsetResult results[3],
+	double x_sigma, double x_threshold,
+	double y_sigma, double y_threshold
 ) {
 	PpacEvent event;
 	SetupInput(&chain, event, "");
@@ -207,7 +209,7 @@ int CalibratePpacOffset(
 		h_delay_y->Write();
 		
 		TH1D *h_dtx = new TH1D(prefix + "dtx12", "dtx12", 4000, -200, 200);
-		TH1D *h_dty = new TH1D(prefix + "dty21", "dty21", 4000, -200, 200);
+		TH1D *h_dty = new TH1D(prefix + "dty12", "dty12", 4000, -200, 200);
 		
 		TSpectrum *spectrum_dtx = new TSpectrum(50);
 		TSpectrum *spectrum_dty = new TSpectrum(50);
@@ -245,8 +247,8 @@ int CalibratePpacOffset(
 		printf("\r  Pass2: 100%%\n");
 		
 		std::vector<double> chip_peaks_x, chip_peaks_y;
-		FitChipPeaks(h_dtx, spectrum_dtx, chip_peaks_x, 2, 0.2, "X");
-		FitChipPeaks(h_dty, spectrum_dty, chip_peaks_y, 3, 0.001, "Y");
+		FitChipPeaks(h_dtx, spectrum_dtx, chip_peaks_x, x_sigma, x_threshold, "X");
+		FitChipPeaks(h_dty, spectrum_dty, chip_peaks_y, y_sigma, y_threshold, "Y");
 		
 		h_dtx->Write();
 		h_dty->Write();
@@ -298,7 +300,11 @@ int main(int argc, char **argv) {
 		("h,help", "Print help information.")
 		("r,run", "Run number.", cxxopts::value<int>(), "run")
 		("t,trigger", "Trigger type.", cxxopts::value<std::string>()->default_value("main"), "trigger")
-		("c,config", "Config file path.", cxxopts::value<std::string>()->default_value("config.toml"), "file");
+		("c,config", "Config file path.", cxxopts::value<std::string>()->default_value("config.toml"), "file")
+		("x-sigma", "TSpectrum sigma for X chip peaks.", cxxopts::value<double>()->default_value("2.5"), "value")
+		("x-threshold", "TSpectrum threshold for X chip peaks.", cxxopts::value<double>()->default_value("0.1"), "value")
+		("y-sigma", "TSpectrum sigma for Y chip peaks.", cxxopts::value<double>()->default_value("3"), "value")
+		("y-threshold", "TSpectrum threshold for Y chip peaks.", cxxopts::value<double>()->default_value("0.1"), "value");
 	
 	auto result = options.parse(argc, argv);
 	if (result.count("help")) {
@@ -320,6 +326,10 @@ int main(int argc, char **argv) {
 	config.trigger = trigger;
 	
 	const int run = result["run"].as<int>();
+	double x_sigma = result["x-sigma"].as<double>();
+	double x_threshold = result["x-threshold"].as<double>();
+	double y_sigma = result["y-sigma"].as<double>();
+	double y_threshold = result["y-threshold"].as<double>();
 	
 	std::string input_dir = brill::JoinPath(config.workspace, config.paths.ingot);
 	std::string output_dir = brill::JoinPath(config.workspace, config.paths.normalize);
@@ -355,7 +365,7 @@ int main(int argc, char **argv) {
 	TFile root_file(root_path, "recreate");
 	
 	brill::PpacOffsetResult offset_results[3];
-	brill::CalibratePpacOffset(chain, offset_results);
+	brill::CalibratePpacOffset(chain, offset_results, x_sigma, x_threshold, y_sigma, y_threshold);
 	
 	TString txt_path = TString::Format(
 		"%s/ppac_offset_%s%04d.txt",

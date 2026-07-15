@@ -170,7 +170,7 @@ energy[15]: int       — 能量（ADC）
 | `ppac1_Tx_Delay` | TH1D | X 方向延迟时间直方图 |
 | `ppac1_Ty_Delay` | TH1D | Y 方向延迟时间直方图 |
 | `ppac1_dtx12` | TH1D | X 方向时间差谱（dT = X1 - X2） |
-| `ppac1_dty21` | TH1D | Y 方向时间差谱（dT = Y1 - Y2） |
+| `ppac1_dty12` | TH1D | Y 方向时间差谱（dT = Y1 - Y2） |
 | `ppac1_x_graph` | TGraph | X 方向位置刻度拟合图 |
 | `ppac1_y_graph` | TGraph | Y 方向位置刻度拟合图 |
 
