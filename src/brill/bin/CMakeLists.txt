@@ -15,6 +15,16 @@ target_link_libraries(
 	ROOT::Gpad
 )
 
+add_executable(track_ppac track_ppac.cpp)
+target_link_libraries(
+	track_ppac
+	PRIVATE
+	config
+	ppac_track
+	ROOT::RIO
+	ROOT::Tree
+)
+
 add_executable(match_dssd match_dssd.cpp)
 target_link_libraries(
 	match_dssd
@@ -30,6 +40,20 @@ target_link_libraries(
 	PRIVATE
 	config
 	t0_dssd
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gpad
+	ROOT::Gui
+)
+
+add_executable(check_ppac_track check_ppac_track.cpp)
+target_link_libraries(
+	check_ppac_track
+	PRIVATE
+	config
+	ppac_track
+	ROOT::RIO
+	ROOT::Tree
 	ROOT::Hist
 	ROOT::Graf
 	ROOT::Gpad
