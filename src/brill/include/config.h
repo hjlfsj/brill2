@@ -70,6 +70,8 @@ struct IdentifyConfig {
 
 struct PpacConfig {
 	double z_mm[kMaxPpac] = {0.0, 0.0, 0.0};
+	double z_x_mm[kMaxPpac] = {0.0, 0.0, 0.0};
+	double z_y_mm[kMaxPpac] = {0.0, 0.0, 0.0};
 	double x_offset_mm[kMaxPpac] = {0.0, 0.0, 0.0};
 	double y_offset_mm[kMaxPpac] = {0.0, 0.0, 0.0};
 	double x_scale[kMaxPpac] = {1.0, 1.0, 1.0};

@@ -199,6 +199,24 @@ void LoadPpac(const toml::table &table, PpacConfig &ppac) {
 			}
 		}
 	}
+	if (const auto *node = table["z_x_mm"].as_array()) {
+		for (size_t i = 0; i < node->size() && i < kMaxPpac; ++i) {
+			if (auto value = (*node)[i].value<double>()) {
+				ppac.z_x_mm[i] = *value;
+			}
+		}
+	} else {
+		for (size_t i = 0; i < kMaxPpac; ++i) ppac.z_x_mm[i] = ppac.z_mm[i];
+	}
+	if (const auto *node = table["z_y_mm"].as_array()) {
+		for (size_t i = 0; i < node->size() && i < kMaxPpac; ++i) {
+			if (auto value = (*node)[i].value<double>()) {
+				ppac.z_y_mm[i] = *value;
+			}
+		}
+	} else {
+		for (size_t i = 0; i < kMaxPpac; ++i) ppac.z_y_mm[i] = ppac.z_mm[i];
+	}
 	if (const auto *node = table["x_offset_mm"].as_array()) {
 		for (size_t i = 0; i < node->size() && i < kMaxPpac; ++i) {
 			if (auto value = (*node)[i].value<double>()) {

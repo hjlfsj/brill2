@@ -114,11 +114,11 @@ void TrackPpac(
 	std::vector<double> z_x, pos_x, z_y, pos_y;
 	for (int i = 0; i < 3; ++i) {
 		if (track.x_used_ppac & (1u << i)) {
-			z_x.push_back(ppac_config.z_mm[i]);
+			z_x.push_back(ppac_config.z_x_mm[i]);
 			pos_x.push_back(track.ppac_x[i]);
 		}
 		if (track.y_used_ppac & (1u << i)) {
-			z_y.push_back(ppac_config.z_mm[i]);
+			z_y.push_back(ppac_config.z_y_mm[i]);
 			pos_y.push_back(track.ppac_y[i]);
 		}
 	}

@@ -86,8 +86,6 @@ volatile bool g_check_ppac_add = false;
 volatile bool g_check_ppac_clear = false;
 
 void DrawStaticElements() {
-	double ppac_z[3] = {-52.0, -332.0, -612.0};
-
 	if (!g_ctx.frame_zx) {
 		g_ctx.pad_zx->cd();
 		gStyle->SetOptStat(0);
@@ -96,7 +94,8 @@ void DrawStaticElements() {
 		g_ctx.frame_zx->SetDirectory(nullptr);
 		g_ctx.frame_zx->Draw();
 		for (int i = 0; i < 3; ++i) {
-			TLine *line = new TLine(ppac_z[i], kPosMin, ppac_z[i], kPosMax);
+			TLine *line = new TLine(g_ctx.ppac_config->z_x_mm[i], kPosMin,
+				g_ctx.ppac_config->z_x_mm[i], kPosMax);
 			line->SetLineColor(kRed);
 			line->SetLineStyle(2);
 			line->Draw();
@@ -115,7 +114,8 @@ void DrawStaticElements() {
 		g_ctx.frame_zy->SetDirectory(nullptr);
 		g_ctx.frame_zy->Draw();
 		for (int i = 0; i < 3; ++i) {
-			TLine *line = new TLine(ppac_z[i], kPosMin, ppac_z[i], kPosMax);
+			TLine *line = new TLine(g_ctx.ppac_config->z_y_mm[i], kPosMin,
+				g_ctx.ppac_config->z_y_mm[i], kPosMax);
 			line->SetLineColor(kRed);
 			line->SetLineStyle(2);
 			line->Draw();
@@ -147,7 +147,7 @@ void AddEventToCanvas(const brill::PpacTrackEvent &track) {
 
 	for (int i = 0; i < 3; ++i) {
 		if (!std::isnan(track.ppac_x[i])) {
-			zx_vals[n_points] = g_ctx.ppac_config->z_mm[i];
+			zx_vals[n_points] = g_ctx.ppac_config->z_x_mm[i];
 			zx_points[n_points] = track.ppac_x[i];
 			++n_points;
 		}
@@ -183,7 +183,7 @@ void AddEventToCanvas(const brill::PpacTrackEvent &track) {
 	double zy_vals_arr[3], zy_points_arr[3];
 	for (int i = 0; i < 3; ++i) {
 		if (!std::isnan(track.ppac_y[i])) {
-			zy_vals_arr[n_points_y] = g_ctx.ppac_config->z_mm[i];
+			zy_vals_arr[n_points_y] = g_ctx.ppac_config->z_y_mm[i];
 			zy_points_arr[n_points_y] = track.ppac_y[i];
 			++n_points_y;
 		}
