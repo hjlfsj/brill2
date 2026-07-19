@@ -244,9 +244,6 @@ void UpdateInfoDisplay(const brill::PpacTrackEvent &track, long long entry_num) 
 		}
 	}
 	g_ctx.info_text->Draw();
-
-	g_ctx.canvas->Modified();
-	g_ctx.canvas->Update();
 }
 
 void PrintEvent(const brill::PpacTrackEvent &track, long long entry_num) {
@@ -279,22 +276,31 @@ long long FindNextMatching(long long start) {
 }
 
 void ClearCanvas() {
-	for (auto *g : g_ctx.zx_graphs) { g_ctx.mg_zx->GetListOfGraphs()->Remove(g); delete g; }
-	for (auto *g : g_ctx.zy_graphs) { g_ctx.mg_zy->GetListOfGraphs()->Remove(g); delete g; }
-	for (auto *g : g_ctx.track_zx_graphs) { g_ctx.mg_zx->GetListOfGraphs()->Remove(g); delete g; }
-	for (auto *g : g_ctx.track_zy_graphs) { g_ctx.mg_zy->GetListOfGraphs()->Remove(g); delete g; }
+	for (auto *g : g_ctx.zx_graphs) {
+		TList *list = g_ctx.mg_zx->GetListOfGraphs();
+		if (list) list->Remove(g);
+		delete g;
+	}
+	for (auto *g : g_ctx.zy_graphs) {
+		TList *list = g_ctx.mg_zy->GetListOfGraphs();
+		if (list) list->Remove(g);
+		delete g;
+	}
+	for (auto *g : g_ctx.track_zx_graphs) {
+		TList *list = g_ctx.mg_zx->GetListOfGraphs();
+		if (list) list->Remove(g);
+		delete g;
+	}
+	for (auto *g : g_ctx.track_zy_graphs) {
+		TList *list = g_ctx.mg_zy->GetListOfGraphs();
+		if (list) list->Remove(g);
+		delete g;
+	}
 	g_ctx.zx_graphs.clear();
 	g_ctx.zy_graphs.clear();
 	g_ctx.track_zx_graphs.clear();
 	g_ctx.track_zy_graphs.clear();
 	g_ctx.g_target->Set(0);
-
-	g_ctx.pad_info->cd();
-	g_ctx.info_text->Clear();
-	g_ctx.info_text->Draw();
-
-	g_ctx.canvas->Modified();
-	g_ctx.canvas->Update();
 }
 
 void ProcessRead() {
@@ -318,9 +324,15 @@ void ProcessRead() {
 	PrintEvent(*g_ctx.track_event, found);
 
 	g_ctx.pad_zx->cd();
-	if (g_ctx.mg_zx->GetListOfGraphs()->GetSize() > 0) g_ctx.mg_zx->Draw("LP");
+	{
+		TList *list = g_ctx.mg_zx->GetListOfGraphs();
+		if (list && list->GetSize() > 0) g_ctx.mg_zx->Draw("LP");
+	}
 	g_ctx.pad_zy->cd();
-	if (g_ctx.mg_zy->GetListOfGraphs()->GetSize() > 0) g_ctx.mg_zy->Draw("LP");
+	{
+		TList *list = g_ctx.mg_zy->GetListOfGraphs();
+		if (list && list->GetSize() > 0) g_ctx.mg_zy->Draw("LP");
+	}
 	g_ctx.pad_target->cd();
 	if (g_ctx.g_target->GetN() > 0) g_ctx.g_target->Draw("P same");
 
@@ -346,9 +358,15 @@ void ProcessNext() {
 	PrintEvent(*g_ctx.track_event, found);
 
 	g_ctx.pad_zx->cd();
-	if (g_ctx.mg_zx->GetListOfGraphs()->GetSize() > 0) g_ctx.mg_zx->Draw("LP");
+	{
+		TList *list = g_ctx.mg_zx->GetListOfGraphs();
+		if (list && list->GetSize() > 0) g_ctx.mg_zx->Draw("LP");
+	}
 	g_ctx.pad_zy->cd();
-	if (g_ctx.mg_zy->GetListOfGraphs()->GetSize() > 0) g_ctx.mg_zy->Draw("LP");
+	{
+		TList *list = g_ctx.mg_zy->GetListOfGraphs();
+		if (list && list->GetSize() > 0) g_ctx.mg_zy->Draw("LP");
+	}
 	g_ctx.pad_target->cd();
 	if (g_ctx.g_target->GetN() > 0) g_ctx.g_target->Draw("P same");
 
@@ -373,9 +391,15 @@ void ProcessAdd() {
 	PrintEvent(*g_ctx.track_event, found);
 
 	g_ctx.pad_zx->cd();
-	if (g_ctx.mg_zx->GetListOfGraphs()->GetSize() > 0) g_ctx.mg_zx->Draw("LP");
+	{
+		TList *list = g_ctx.mg_zx->GetListOfGraphs();
+		if (list && list->GetSize() > 0) g_ctx.mg_zx->Draw("LP");
+	}
 	g_ctx.pad_zy->cd();
-	if (g_ctx.mg_zy->GetListOfGraphs()->GetSize() > 0) g_ctx.mg_zy->Draw("LP");
+	{
+		TList *list = g_ctx.mg_zy->GetListOfGraphs();
+		if (list && list->GetSize() > 0) g_ctx.mg_zy->Draw("LP");
+	}
 	g_ctx.pad_target->cd();
 	if (g_ctx.g_target->GetN() > 0) g_ctx.g_target->Draw("P same");
 

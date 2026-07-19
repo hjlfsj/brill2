@@ -60,6 +60,16 @@ target_link_libraries(
 	ROOT::Gui
 )
 
+add_executable(adjust_ppac_position adjust_ppac_position.cpp)
+target_link_libraries(
+	adjust_ppac_position
+	PRIVATE
+	config
+	ppac_track
+	ROOT::RIO
+	ROOT::Tree
+)
+
 add_executable(track_t0 track_t0.cpp)
 target_link_libraries(
 	track_t0
