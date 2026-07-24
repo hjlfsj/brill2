@@ -96,7 +96,9 @@ void TrackPpac(
 			double delay_x = event.time[ch_x1] + event.time[ch_x2] - 2 * event.time[ch_anode];
 			if (std::fabs(delay_x - offset[ppac_idx].delay_x_peak) < 3 * offset[ppac_idx].delay_x_sigma) {
 				double dtx = event.time[ch_x1] - event.time[ch_x2];
-				track.ppac_x[ppac_idx] = offset[ppac_idx].position_x_p0 + offset[ppac_idx].position_x_p1 * dtx;
+				track.ppac_x[ppac_idx] = offset[ppac_idx].position_x_p0
+					+ offset[ppac_idx].position_x_p1 * dtx
+					+ ppac_config.x_offset_mm[ppac_idx];
 				track.x_used_ppac |= (1u << ppac_idx);
 			}
 		}
@@ -105,7 +107,9 @@ void TrackPpac(
 			double delay_y = event.time[ch_y1] + event.time[ch_y2] - 2 * event.time[ch_anode];
 			if (std::fabs(delay_y - offset[ppac_idx].delay_y_peak) < 3 * offset[ppac_idx].delay_y_sigma) {
 				double dty = event.time[ch_y1] - event.time[ch_y2];
-				track.ppac_y[ppac_idx] = offset[ppac_idx].position_y_p0 + offset[ppac_idx].position_y_p1 * dty;
+				track.ppac_y[ppac_idx] = offset[ppac_idx].position_y_p0
+					+ offset[ppac_idx].position_y_p1 * dty
+					+ ppac_config.y_offset_mm[ppac_idx];
 				track.y_used_ppac |= (1u << ppac_idx);
 			}
 		}

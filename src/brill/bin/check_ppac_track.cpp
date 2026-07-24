@@ -37,6 +37,7 @@
 
 #include "external/cxxopts.hpp"
 #include "include/config.h"
+#include "include/event/ingot/ppac_event.h"
 #include "include/event/ppac/ppac_track_event.h"
 #include "include/utils.h"
 
@@ -63,7 +64,8 @@ struct CheckContext {
 	TH2F *frame_zx = nullptr;
 	TH2F *frame_zy = nullptr;
 	TH2F *frame_target = nullptr;
-	TTree *track_tree = nullptr;
+	TTree *input_tree = nullptr;
+	brill::PpacEvent *input_event = nullptr;
 	brill::PpacTrackEvent *track_event = nullptr;
 	brill::PpacOffsetParams *offset = nullptr;
 	brill::PpacConfig *ppac_config = nullptr;
@@ -268,7 +270,8 @@ bool PassFilter() {
 
 long long FindNextMatching(long long start) {
 	while (start < g_ctx.total) {
-		g_ctx.track_tree->GetEntry(start);
+		g_ctx.input_tree->GetEntry(start);
+		brill::TrackPpac(*g_ctx.input_event, *g_ctx.ppac_config, g_ctx.offset, *g_ctx.track_event);
 		if (PassFilter()) return start;
 		++start;
 	}
@@ -315,8 +318,6 @@ void ProcessRead() {
 	}
 
 	ClearCanvas();
-	g_ctx.track_tree->GetEntry(found);
-
 	*g_ctx.current_entry = found;
 	g_ctx.entry_number->SetIntNumber(found);
 	AddEventToCanvas(*g_ctx.track_event);
@@ -349,8 +350,6 @@ void ProcessNext() {
 	}
 
 	ClearCanvas();
-	g_ctx.track_tree->GetEntry(found);
-
 	*g_ctx.current_entry = found;
 	g_ctx.entry_number->SetIntNumber(found);
 	AddEventToCanvas(*g_ctx.track_event);
@@ -381,8 +380,6 @@ void ProcessAdd() {
 		printf("\nNo more matching events.\n");
 		return;
 	}
-
-	g_ctx.track_tree->GetEntry(found);
 
 	*g_ctx.current_entry = found;
 	g_ctx.entry_number->SetIntNumber(found);
@@ -428,35 +425,34 @@ int main(int argc, char **argv) {
 	config.trigger = result["trigger"].as<std::string>();
 	const int run = result["run"].as<int>();
 
-	std::string track_dir = brill::JoinPath(config.workspace, config.paths.track);
+	std::string ingot_dir = brill::JoinPath(config.workspace, config.paths.ingot);
 	std::string normalize_dir = brill::JoinPath(config.workspace, config.paths.normalize);
 
-	std::string prefix = (config.trigger == "main") ? "" : "t1_";
-
-	TString track_path = TString::Format("%s/ppac_%s%04d.root",
-		track_dir.c_str(), prefix.c_str(), run);
+	TString input_path = TString::Format("%s/ppac_%s%04d.root",
+		ingot_dir.c_str(), brill::TriggerInfix(config.trigger).c_str(), run);
 	TString offset_path = TString::Format("%s/ppac_offset_%04d.txt",
 		normalize_dir.c_str(), run);
 
-	std::cout << "Track file:  " << track_path << "\n";
+	std::cout << "Input file:  " << input_path << "\n";
 	std::cout << "Offset file: " << offset_path << "\n";
 
-	if (!std::filesystem::exists(track_path.Data())) {
-		std::cerr << "Error: Track file not found: " << track_path << "\n";
+	if (!std::filesystem::exists(input_path.Data())) {
+		std::cerr << "Error: Input file not found: " << input_path << "\n";
 		return 1;
 	}
 
-	TFile *track_file = new TFile(track_path, "read");
-	TTree *track_tree = (TTree*)track_file->Get("tree");
-	if (!track_tree) { std::cerr << "Error: Get track tree failed.\n"; return 1; }
+	TFile *input_file = new TFile(input_path, "read");
+	TTree *input_tree = (TTree*)input_file->Get("tree");
+	if (!input_tree) { std::cerr << "Error: Get tree failed.\n"; return 1; }
+
+	brill::PpacEvent input_event;
+	brill::SetupInput(input_tree, input_event, "");
 
 	brill::PpacTrackEvent track_event;
-	brill::SetupInput(track_tree, track_event);
-
 	brill::PpacOffsetParams offset[3];
 	if (brill::ReadPpacOffsetParams(offset_path.Data(), offset)) return 1;
 
-	long long total = track_tree->GetEntries();
+	long long total = input_tree->GetEntries();
 	printf("Total events: %lld\n", total);
 
 	TApplication app("check_ppac_track", nullptr, nullptr);
@@ -526,7 +522,8 @@ int main(int argc, char **argv) {
 	g_ctx.mg_zy = mg_zy;
 	g_ctx.g_target = g_target;
 	g_ctx.info_text = info_text;
-	g_ctx.track_tree = track_tree;
+	g_ctx.input_tree = input_tree;
+	g_ctx.input_event = &input_event;
 	g_ctx.track_event = &track_event;
 	g_ctx.offset = offset;
 	g_ctx.ppac_config = &config.ppac;
