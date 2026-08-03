@@ -70,6 +70,26 @@ target_link_libraries(
 	ROOT::Tree
 )
 
+add_executable(adjust_t0_step1 adjust_t0_step1.cpp)
+target_link_libraries(
+	adjust_t0_step1
+	PRIVATE
+	config
+	adjust_t0
+	ROOT::RIO
+	ROOT::Tree
+)
+
+add_executable(adjust_t0_step2 adjust_t0_step2.cpp)
+target_link_libraries(
+	adjust_t0_step2
+	PRIVATE
+	config
+	adjust_t0
+	ROOT::RIO
+	ROOT::Tree
+)
+
 add_executable(track_t0 track_t0.cpp)
 target_link_libraries(
 	track_t0

@@ -261,6 +261,8 @@ void LoadDetector(const toml::table &table, const std::string &name, SquareDetec
 	LoadDetectorDouble(table, "center_y_mm", detector.center_y_mm);
 	LoadDetectorDouble(table, "z_mm", detector.z_mm);
 	LoadDetectorDouble(table, "match_tolerance", detector.match_tolerance);
+	LoadDetectorDouble(table, "x_offset_mm", detector.x_offset_mm);
+	LoadDetectorDouble(table, "y_offset_mm", detector.y_offset_mm);
 }
 
 } // namespace

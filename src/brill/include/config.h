@@ -21,6 +21,8 @@ struct SquareDetectorConfig {
 	double center_y_mm = 0.0;
 	double z_mm = 0.0;
 	double match_tolerance = 1000.0;
+	double x_offset_mm = 0.0;
+	double y_offset_mm = 0.0;
 };
 
 struct NromalizeStripsConfig {

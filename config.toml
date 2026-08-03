@@ -34,8 +34,11 @@ size_x_mm = 64.0
 size_y_mm = 64.0
 center_x_mm = 0.0
 center_y_mm = 0.0
-z_mm = 100.0
+z_mm = 108.0 
 match_tolerance = 1000
+x_offset_mm = 0.10
+y_offset_mm = 1.96
+
 
 [detectors.t0d2]
 type = "dssd"
@@ -46,8 +49,10 @@ size_x_mm = 64.0
 size_y_mm = 64.0
 center_x_mm = 0.0
 center_y_mm = 0.0
-z_mm = 111.76
+z_mm = 118.0
 match_tolerance = 2000
+x_offset_mm = 1.00
+y_offset_mm = 2.41
 
 [detectors.t0d3]
 type = "dssd"
@@ -58,8 +63,10 @@ size_x_mm = 64.0
 size_y_mm = 64.0
 center_x_mm = 0.0
 center_y_mm = 0.0
-z_mm = 123.52
+z_mm = 128.0
 match_tolerance = 1000
+x_offset_mm = 0.11
+y_offset_mm = 1.93
 
 [detectors.t0d4]
 type = "dssd"
@@ -70,8 +77,10 @@ size_x_mm = 64.0
 size_y_mm = 64.0
 center_x_mm = 0.0
 center_y_mm = 0.0
-z_mm = 135.28
+z_mm = 138.0
 match_tolerance = 400.0
+x_offset_mm = 0.12
+y_offset_mm = 1.63
 
 [detectors.t0s]
 type = "ssd"

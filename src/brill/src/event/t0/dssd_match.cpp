@@ -53,6 +53,8 @@ void FillPhysicalPosition(
 			back_strip
 		);
 	}
+	x += detector.x_offset_mm;
+	y += detector.y_offset_mm;
 	z = detector.z_mm;
 }
 
