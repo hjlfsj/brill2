@@ -60,6 +60,22 @@ target_link_libraries(
 	ROOT::Gui
 )
 
+add_executable(GUI_track GUI_track.cpp)
+target_link_libraries(
+	GUI_track
+	PRIVATE
+	config
+	ppac_track
+	dssd_match_event
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Graf3d
+	ROOT::Gpad
+	ROOT::Gui
+)
+
 add_executable(adjust_ppac_position adjust_ppac_position.cpp)
 target_link_libraries(
 	adjust_ppac_position

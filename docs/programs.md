@@ -10,6 +10,7 @@
 | `match_dssd` | DSSD 正反面匹配 | `./match_dssd -r 60 -t main` |
 | `check_match` | DSSD 匹配检查器 (GUI) | `./check_match -r 60 -t main -d t0d1` |
 | `check_ppac_track` | PPAC 径迹检查器 (GUI) | `./check_ppac_track -r 60 -t main` |
+| `GUI_track` | PPAC + T0 径迹查看器 (GUI) | `./GUI_track -r 60 -t main` |
 | `adjust_ppac_position` | PPAC 位置偏移矫正 | `./adjust_ppac_position -r 60 -t main -n 5` |
 | `adjust_t0_step1` | T0 D1/D2/D3 位置矫正（束流） | `./adjust_t0_step1 -r 60 -t main` |
 | `adjust_t0_step2` | T0 D4 位置矫正（径迹外推） | `./adjust_t0_step2 -r 60 -t main` |

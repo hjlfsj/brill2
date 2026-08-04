@@ -44,7 +44,7 @@ void PrintUsage(const cxxopts::Options &options) {
 }
 
 bool FitDelayPeak(TH1D *hist, TSpectrum *spectrum, double &peak, double &sigma, const char *name) {
-	int nfound = spectrum->Search(hist, 0.7, "", 0.9);
+	int nfound = spectrum->Search(hist, 2, "", 0.9);
 	if (nfound < 1) {
 		std::cerr << "Warning: No peak found in " << name << "\n";
 		return false;
@@ -301,7 +301,7 @@ int main(int argc, char **argv) {
 		("r,run", "Run number.", cxxopts::value<int>(), "run")
 		("t,trigger", "Trigger type.", cxxopts::value<std::string>()->default_value("main"), "trigger")
 		("c,config", "Config file path.", cxxopts::value<std::string>()->default_value("config.toml"), "file")
-		("x-sigma", "TSpectrum sigma for X chip peaks.", cxxopts::value<double>()->default_value("2.5"), "value")
+		("x-sigma", "TSpectrum sigma for X chip peaks.", cxxopts::value<double>()->default_value("2"), "value")
 		("x-threshold", "TSpectrum threshold for X chip peaks.", cxxopts::value<double>()->default_value("0.1"), "value")
 		("y-sigma", "TSpectrum sigma for Y chip peaks.", cxxopts::value<double>()->default_value("3"), "value")
 		("y-threshold", "TSpectrum threshold for Y chip peaks.", cxxopts::value<double>()->default_value("0.1"), "value");
