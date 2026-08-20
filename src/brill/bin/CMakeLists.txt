@@ -148,5 +148,17 @@ target_link_libraries(
 	ROOT::Minuit
 )
 
+add_executable(extract_d_Li6 d_6Li/extract_d_Li6.cpp ../src/d_6Li/extract.cpp)
+target_link_libraries(
+	extract_d_Li6
+	PRIVATE
+	config
+	dssd_match_event
+	ppac_track
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+)
+
 add_subdirectory(estimate)
 add_subdirectory(rebuild)

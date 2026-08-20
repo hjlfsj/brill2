@@ -47,6 +47,7 @@ void LoadPaths(const toml::table &table, AppPaths &paths) {
 	LoadPath(table, "spectrum", paths.spectrum);
 	LoadPath(table, "calibration", paths.calibration);
 	LoadPath(table, "energy_calculator", paths.energy_calculator);
+	LoadPath(table, "d_Li6", paths.d_Li6);
 }
 
 template<typename T>

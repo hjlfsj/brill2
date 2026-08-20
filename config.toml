@@ -13,7 +13,7 @@ track = "track"
 particle = "particle"
 spectrum = "spectrum"
 estimate = "estimate"
-
+d_Li6 = "d_Li6"
 [t0]
 silicon = ["t0d1", "t0d2", "t0d3", "t0d4", "t0s"]
 
