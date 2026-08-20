@@ -103,7 +103,7 @@ MatchDssdEvent(input, detector, output, h_energy_diff)
 
 - 模式 0/1 → 单条匹配，`merge_tag = 0`
 - 模式 2，front 相邻 → 相邻合并，`merge_tag = 1`，条带位置取加权平均 `WeightedStrip`
-- 模式 2，front 不相邻 → 非相邻拆分，`merge_tag = 3`，输出 2 个粒子（各自用原始能量，不拆分）
+- 模式 2，front 不相邻 → 非相邻拆分，`merge_tag = 3`，输出 2 个粒子，back 能量按 front 能量比例拆分：`e_i = back_e * front_e[i] / (front_e[0] + front_e[1])`
 
 ### 3.3 1f-2b 匹配
 
@@ -268,6 +268,18 @@ position = center + size * ((strip + 0.5) / strips - 0.5)
 
 根据探测器配置计算粒子的 (x, y, z) 物理坐标。探测器 `t0d2` 有特殊的坐标映射（back 条带映射到 x，front 条带映射到 y 且翻转）。
 
+**位置计算公式**：
+
+```cpp
+x = StripPosition(center_x, size_x, strips, front_strip);
+y = StripPosition(center_y, size_y, strips, back_strip);
+x += detector.x_offset_mm;   // 加探测器 x 偏移
+y += detector.y_offset_mm;   // 加探测器 y 偏移
+z = detector.z_mm;
+```
+
+其中 `x_offset_mm` 和 `y_offset_mm` 来自 `config.toml` 中每个探测器的配置（如 `[detectors.t0d4]` 的 `x_offset_mm = 0.12, y_offset_mm = 1.63`），每个探测器独立配置，由 `adjust_t0_step1`（束流法）和 `adjust_t0_step2`（层间法）拟合得到。
+
 ### 6.4 AppendMatchResult
 
 将匹配结果写入 `DssdMatchEvent`。若 `output.num ≥ 8` 则忽略。写入后自动调用 `FillPhysicalPosition` 计算物理坐标。
@@ -287,3 +299,47 @@ position = center + size * ((strip + 0.5) / strips - 0.5)
 3. **最多 8 个输出粒子**：由 `DssdMatchEvent` 内部数组大小限制。
 4. **输入必须已按能量降序**：`MatchComplex_v1` 依赖此前提构建组合和选取时间。
 5. **能量条件**：`fe > diff && be > diff` 在低能量时有效过滤噪声假配对。
+
+---
+
+## 9. T0 探测器配置与 offset 参数
+
+各探测器参数来自 `config.toml`，其中 `x_offset_mm` 和 `y_offset_mm` 在 `FillPhysicalPosition` 中应用。
+
+| 参数 | t0d1 | t0d2 | t0d3 | t0d4 |
+|------|------|------|------|------|
+| `z_mm` | 108.0 | 118.0 | 128.0 | 138.0 |
+| `front_strips` | 32 | 64 | 32 | 32 |
+| `back_strips` | 32 | 64 | 32 | 32 |
+| `thickness_um` | 68.0 | 1005.0 | 995.0 | 999.0 |
+| `size_x_mm` | 64.0 | 64.0 | 64.0 | 64.0 |
+| `size_y_mm` | 64.0 | 64.0 | 64.0 | 64.0 |
+| `center_x_mm` | 0.0 | 0.0 | 0.0 | 0.0 |
+| `center_y_mm` | 0.0 | 0.0 | 0.0 | 0.0 |
+| `match_tolerance` | 1000 | 2000 | 1000 | 400.0 |
+| `x_offset_mm` | 0.10 | 1.00 | 0.11 | 0.12 |
+| `y_offset_mm` | 1.96 | 2.41 | 1.93 | 1.63 |
+
+### offset 值的来源
+
+| 程序 | 方法 | 适用探测器 |
+|------|------|-----------|
+| `adjust_t0_step1` | PPAC 径迹外推 vs DSSD hit 位置的残差高斯拟合 | D1, D2, D3 |
+| `adjust_t0_step2` | 以 D1 为参考，层间残差高斯拟合 | D2, D3, D4 |
+
+### offset 数据流
+
+```
+config.toml 中每个探测器独立配置 x_offset_mm, y_offset_mm
+    │
+    ▼
+DSSD match 阶段 (dssd_match.cpp → FillPhysicalPosition)
+    ├── StripPosition → 物理坐标 (x, y)（基于 strip 编号）
+    ├── + detector.x_offset_mm
+    └── + detector.y_offset_mm      ← offset 在此处加入
+    │
+    ▼
+DssdMatchEvent (x, y 已修正) → 所有下游代码直接使用
+```
+
+**注意**：offset 在每个探测器**独立**的 `FillPhysicalPosition` 调用中生效，D4 的 `x_offset_mm=0.12` 不会影响 D1/D2/D3。`t0d2` 坐标映射特殊：back 条带→x，front 条带→y 且翻转（`63 - front_strip`）。
