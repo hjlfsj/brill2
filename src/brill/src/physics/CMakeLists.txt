@@ -1,0 +1,10 @@
+add_library(
+	physics
+	kinematics.cpp
+)
+target_include_directories(
+	physics
+	PUBLIC
+	${PROJECT_SOURCE_DIR}
+	${ROOT_INCLUDE_DIRS}
+)

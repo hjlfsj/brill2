@@ -2,6 +2,7 @@ add_library(
 	rebuild_physics
 	nuclear_data.cpp
 	particle.cpp
+	rebuild_d_6Li.cpp
 )
 target_include_directories(
 	rebuild_physics
@@ -16,4 +17,5 @@ target_link_libraries(
 	ROOT::Core
 	ROOT::GenVector
 	ROOT::MathCore
+	d_6Li_event
 )

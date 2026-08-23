@@ -18,6 +18,10 @@ add_library(trigger_event trigger_event.cpp)
 target_include_directories(trigger_event PUBLIC ${PROJECT_SOURCE_DIR} ${ROOT_INCLUDE_DIRS})
 target_link_libraries(trigger_event PUBLIC ROOT::Core ROOT::Tree ROOT::RIO)
 
+add_library(beam_sort ../beam/beam_sort.cpp)
+target_include_directories(beam_sort PUBLIC ${PROJECT_SOURCE_DIR} ${ROOT_INCLUDE_DIRS})
+target_link_libraries(beam_sort PUBLIC ROOT::Core ROOT::Tree ROOT::Hist ROOT::Spectrum)
+
 add_library(silicon_event silicon_event.cpp)
 target_include_directories(silicon_event PUBLIC ${PROJECT_SOURCE_DIR} ${ROOT_INCLUDE_DIRS})
 target_link_libraries(silicon_event PUBLIC ROOT::Core ROOT::Tree ROOT::RIO)

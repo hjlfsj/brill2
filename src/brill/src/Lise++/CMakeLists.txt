@@ -1,0 +1,16 @@
+add_library(
+	lise_physics
+	e_theta.cpp
+)
+target_include_directories(
+	lise_physics
+	PUBLIC
+	${PROJECT_SOURCE_DIR}
+	${ROOT_INCLUDE_DIRS}
+)
+target_link_libraries(
+	lise_physics
+	PUBLIC
+	ROOT::Core
+	ROOT::Gpad
+)

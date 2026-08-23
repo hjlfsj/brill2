@@ -1,6 +1,6 @@
 workspace = "/data/disk1/ribll2026_www_data"
 trigger = "t1"
-jump_run = [63, 112, 1096, 1101, 1103, 1104, 1105, 1138, 1140, 1141, 1145, 1147]
+jump_run = [63, 81, 86, 106, 112, 1096, 1101, 1103, 1104, 1105, 1138, 1140, 1141, 1145, 1147]
 assets = "assets"
 
 [paths]
@@ -14,6 +14,7 @@ particle = "particle"
 spectrum = "spectrum"
 estimate = "estimate"
 d_Li6 = "d_Li6"
+beam = "beam"
 [t0]
 silicon = ["t0d1", "t0d2", "t0d3", "t0d4", "t0s"]
 

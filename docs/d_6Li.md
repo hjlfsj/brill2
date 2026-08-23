@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-`extract_d_Li6` 是 d+6Li 物理分析的数据提取程序，从 track 和 match 文件中读取探测器数据，按筛选条件提取事件，输出包含命中事件和 2D 能量相关图的 ROOT 文件。
+`extract_d_Li6` 是 d+6Li 物理分析的数据提取程序，从 match、beam、track 文件中读取探测器数据和束流分类信息，在 extract 阶段一次性完成所有 I/O 和计算（刻度、筛选、分类），输出自包含的 `D6LiEvent` ROOT 文件，供 `GUI_d_Li6` 直接读取，无需回查原始数据。
 
 ## 2. 目录结构
 
@@ -11,6 +11,10 @@
 | `src/brill/bin/d_6Li/extract_d_Li6.cpp` | 主程序 |
 | `src/brill/include/d_6Li/extract.h` | 筛选条件函数声明 |
 | `src/brill/src/d_6Li/extract.cpp` | 筛选条件函数实现 |
+| `src/brill/include/d_6Li/d_6Li_event.h` | D6LiEvent 结构体定义 |
+| `src/brill/src/d_6Li/d_6Li_event.cpp` | SetupInput/Output 实现 |
+| `src/brill/include/physics/kinematics.h` | 角度计算通用函数 |
+| `src/brill/src/physics/kinematics.cpp` | AngleBetween / AngleWithZ 实现 |
 
 ## 3. 运行方式
 
@@ -36,15 +40,16 @@ extract_d_Li6 -r 1000 -e 1010 -t t1
 
 ## 4. 输入文件
 
-与 `GUI_track` 使用相同的输入文件：
+程序读取三类文件，以 `t0d1` 的 tree entry 作为主循环，按 entry 号同步读取所有文件：
 
 | 文件 | 来源 | 内容 |
 |------|------|------|
+| `match/t0d1_<trigger>_<run>.root` | `match_dssd` | D1 `DssdMatchEvent` |
+| `match/t0d2_<trigger>_<run>.root` | `match_dssd` | D2 `DssdMatchEvent` |
+| `match/t0d3_<trigger>_<run>.root` | `match_dssd` | D3 `DssdMatchEvent` |
+| `match/t0d4_<trigger>_<run>.root` | `match_dssd` | D4 `DssdMatchEvent` |
+| `beam/beam_<trigger>_<run>.root` | `sort_beam` | `is_14O` / `is_13N` / `is_12C` |
 | `track/ppac_<trigger>_<run>.root` | `track_ppac` | `PpacTrackEvent` |
-| `match/t0d1_<trigger>_<run>.root` | `match_dssd` | `DssdMatchEvent` |
-| `match/t0d2_<trigger>_<run>.root` | `match_dssd` | `DssdMatchEvent` |
-| `match/t0d3_<trigger>_<run>.root` | `match_dssd` | `DssdMatchEvent` |
-| `match/t0d4_<trigger>_<run>.root` | `match_dssd` | `DssdMatchEvent` |
 
 ## 5. 输出文件
 
@@ -53,12 +58,43 @@ extract_d_Li6 -r 1000 -e 1010 -t t1
 
 ### 输出内容
 
-#### TTree：`tree`
+#### TTree：`tree` — 自包含的 `D6LiEvent`
+
+所有能量已刻度（MeV），所有分类已完成，GUI 可直接读取无需回查原始数据。
 
 | Branch | 类型 | 说明 |
 |--------|------|------|
 | `run_number` | `int` | 事件所在 run 号 |
 | `entry` | `Long64_t` | 事件在对应 run 中的 entry 号 |
+| `e1` | `double` | D1 第一个 hit 刻度后能量 (MeV) |
+| `e2` | `double` | D2 第一个 hit 刻度后能量 (MeV) |
+| `e3` | `double` | D3 第一个 hit 刻度后能量 (MeV) |
+| `e4` | `double` | D4 第一个 hit 刻度后能量 (MeV) |
+| `e1_10C` | `double` | D1 中 10C 分类 hit 的刻度后能量 |
+| `e2_10C` | `double` | D2 中 10C 分类 hit 的刻度后能量 |
+| `e3_10C` | `double` | D3 中 10C 分类 hit 的刻度后能量 |
+| `e4_10C` | `double` | D4 中 10C 分类 hit 的刻度后能量 |
+| `e1_6Li` | `double` | D1 中 6Li 分类 hit 的刻度后能量 |
+| `e2_6Li` | `double` | D2 中 6Li 分类 hit 的刻度后能量 |
+| `is_14O` | `bool` | 束流分类：14O（来自 `sort_beam`） |
+| `is_13N` | `bool` | 束流分类：13N（来自 `sort_beam`） |
+| `is_12C` | `bool` | 束流分类：12C（来自 `sort_beam`） |
+| `ppac_valid` | `bool` | PPAC 径迹是否有效（来自 `track_ppac`） |
+| `target_x` | `double` | PPAC 径迹在 target 处的 x 坐标 (mm) |
+| `target_y` | `double` | PPAC 径迹在 target 处的 y 坐标 (mm) |
+| `dir_x` | `double` | PPAC 径迹 x 方向的方向余弦 |
+| `dir_y` | `double` | PPAC 径迹 y 方向的方向余弦 |
+| `t0d2_10C_x` | `double` | 10C 粒子在 t0d2 上的 x 位置 (mm) |
+| `t0d2_10C_y` | `double` | 10C 粒子在 t0d2 上的 y 位置 (mm) |
+| `t0d2_10C_z` | `double` | 10C 粒子在 t0d2 上的 z 位置 (mm，即 DSSD2 的 z) |
+| `t0d2_6Li_x` | `double` | 6Li 粒子在 t0d2 上的 x 位置 (mm) |
+| `t0d2_6Li_y` | `double` | 6Li 粒子在 t0d2 上的 y 位置 (mm) |
+| `t0d2_6Li_z` | `double` | 6Li 粒子在 t0d2 上的 z 位置 (mm，即 DSSD2 的 z) |
+| `theta_beam` | `double` | 束流与 z 轴夹角（度，0-180），由 PPAC dir_x/dir_y 计算 |
+| `phi_beam` | `double` | 束流方位角（度），atan2(dir_y, dir_x) |
+| `theta_10C` | `double` | 10C 出射方向与束流方向夹角（度），ppac_valid=false 时置 0 |
+| `theta_6Li` | `double` | 6Li 出射方向与束流方向夹角（度），ppac_valid=false 时置 0 |
+| `opening_angle` | `double` | 10C 与 6Li 出射方向夹角（度），ppac_valid=false 时置 0 |
 
 #### TH2D：能量相关图
 
@@ -126,16 +162,24 @@ calibrated_energy = p0[layer] + p1[layer] × raw_energy
 ## 9. 数据流
 
 ```
-track_ppac → track/ppac_*.root
-match_dssd → match/t0d{d}_*.root
-    │
-    ▼
-extract_d_Li6
-    ├── 读取各 run 的 PPAC track + DSSD match 文件
-    ├── 逐 event 应用 PassD6LiCut 筛选条件
-    ├── 通过的事件写入 output_tree (run_number, entry)
+track_ppac ──→ track/ppac_*.root ─────────────┐
+match_dssd ──→ match/t0d{d}_*.root ───────────┤
+sort_beam ───→ beam/beam_*.root ──────────────┤
+calibrate_t0 → calibration/t0.txt ────────────┤
+                                               │
+                                               ▼
+                                        extract_d_Li6
+    ├── 逐 entry 同步读取 match + beam + PPAC track 文件
+    ├── 加载刻度系数，对能量进行刻度
+    ├── 应用 PassD6LiCut 筛选条件
+    ├── 应用 ClassifyD6Li 分类（10C / 6Li）
+    ├── 写入自包含 D6LiEvent（31 个 branch，含位置和角度）
     └── 填充 TH2D 能量相关图
-    │
-    ▼
-d_Li6/extract_d_Li6_*.root
+                                               │
+                                               ▼
+                                    d_Li6/extract_d_Li6_*.root
+                                               │
+                                               ▼
+                                         GUI_d_Li6
+    (直接读取 D6LiEvent，无需回查任何原始文件)
 ```

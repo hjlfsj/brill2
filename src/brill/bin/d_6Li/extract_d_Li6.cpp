@@ -1,8 +1,11 @@
 #include "external/cxxopts.hpp"
 #include "include/config.h"
 #include "include/d_6Li/extract.h"
-#include "include/event/ppac/ppac_track_event.h"
+#include "include/d_6Li/d_6Li_event.h"
 #include "include/event/t0/dssd_match_event.h"
+#include "include/event/beam/beam_sort.h"
+#include "include/event/ppac/ppac_track_event.h"
+#include "include/physics/kinematics.h"
 #include "include/utils.h"
 
 #include <TFile.h>
@@ -11,6 +14,7 @@
 #include <TCutG.h>
 #include <TROOT.h>
 
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -50,8 +54,9 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	std::string track_dir = brill::JoinPath(config.workspace, config.paths.track);
 	std::string match_dir = brill::JoinPath(config.workspace, config.paths.match);
+	std::string track_dir = brill::JoinPath(config.workspace, config.paths.track);
+	std::string beam_dir = brill::JoinPath(config.workspace, config.paths.beam);
 	std::string output_dir = brill::JoinPath(config.workspace, config.paths.d_Li6);
 	std::string calibration_path = TString::Format(
 		"%s/t0.txt",
@@ -95,10 +100,8 @@ int main(int argc, char **argv) {
 	}
 
 	TTree *output_tree = new TTree("tree", "d+6Li extracted events");
-	int tree_run_number = 0;
-	Long64_t tree_entry = 0;
-	output_tree->Branch("run_number", &tree_run_number);
-	output_tree->Branch("entry", &tree_entry);
+	brill::D6LiEvent out_event;
+	brill::SetupOutputD6Li(output_tree, out_event);
 
 	TH2D *h_d1d2 = new TH2D("h_d1d2", "D1 vs D2 energy;D2 E_{1} (MeV);D1 E_{1} (MeV)", 1000, 0, 400, 1000, 0, 25);
 	TH2D *h_d2d3 = new TH2D("h_d2d3", "D2 vs D3 energy;D3 E_{1} (MeV);D2 E_{1} (MeV)", 1000, 0, 350, 1000, 0, 400);
@@ -115,8 +118,6 @@ int main(int argc, char **argv) {
 			continue;
 		}
 
-		TString ppac_path = TString::Format("%s/ppac_%s%04d.root",
-			track_dir.c_str(), trigger_infix.c_str(), run);
 		TString d1_path = TString::Format("%s/t0d1_%s%04d.root",
 			match_dir.c_str(), trigger_infix.c_str(), run);
 		TString d2_path = TString::Format("%s/t0d2_%s%04d.root",
@@ -125,30 +126,25 @@ int main(int argc, char **argv) {
 			match_dir.c_str(), trigger_infix.c_str(), run);
 		TString d4_path = TString::Format("%s/t0d4_%s%04d.root",
 			match_dir.c_str(), trigger_infix.c_str(), run);
+		TString beam_sort_path = TString::Format("%s/beam_%s%04d.root",
+			beam_dir.c_str(), trigger_infix.c_str(), run);
+		TString ppac_track_path = TString::Format("%s/ppac_%s%04d.root",
+			track_dir.c_str(), trigger_infix.c_str(), run);
 
-		if (!std::filesystem::exists(ppac_path.Data())) {
-			std::cerr << "Warning: PPAC track file not found: " << ppac_path << ", skipping run " << run << "\n";
-			continue;
-		}
 		if (!std::filesystem::exists(d1_path.Data())) {
 			std::cerr << "Warning: t0d1 match file not found: " << d1_path << ", skipping run " << run << "\n";
 			continue;
 		}
 
-		TFile *ppac_file = new TFile(ppac_path, "read");
-		TTree *ppac_tree = (TTree*)ppac_file->Get("tree");
-		if (!ppac_tree) {
-			std::cerr << "Warning: PPAC tree not found in " << ppac_path << ", skipping run " << run << "\n";
-			ppac_file->Close();
-			continue;
-		}
-		brill::PpacTrackEvent ppac_event;
-		brill::SetupInput(ppac_tree, ppac_event, "");
-
 		TFile *d1_file = new TFile(d1_path, "read");
 		TTree *d1_tree = (TTree*)d1_file->Get("tree");
+		if (!d1_tree) {
+			std::cerr << "Warning: t0d1 tree not found in " << d1_path << ", skipping run " << run << "\n";
+			d1_file->Close();
+			continue;
+		}
 		brill::DssdMatchEvent d1_event;
-		if (d1_tree) brill::SetupInput(d1_tree, d1_event, "");
+		brill::SetupInput(d1_tree, d1_event, "");
 
 		TFile *d2_file = nullptr;
 		TTree *d2_tree = nullptr;
@@ -177,7 +173,31 @@ int main(int argc, char **argv) {
 			if (d4_tree) brill::SetupInput(d4_tree, d4_event, "");
 		}
 
-		Long64_t n_entries = ppac_tree->GetEntries();
+		TFile *beam_file = nullptr;
+		TTree *beam_tree = nullptr;
+		bool beam_is_14O = false;
+		bool beam_is_13N = false;
+		bool beam_is_12C = false;
+		if (std::filesystem::exists(beam_sort_path.Data())) {
+			beam_file = new TFile(beam_sort_path, "read");
+			beam_tree = (TTree*)beam_file->Get("tree");
+			if (beam_tree) {
+				brill::SetupInputSortBeamTree(beam_tree, beam_is_14O, beam_is_13N, beam_is_12C);
+			}
+		}
+
+		TFile *ppac_file = nullptr;
+		TTree *ppac_tree = nullptr;
+		brill::PpacTrackEvent ppac_event;
+		if (std::filesystem::exists(ppac_track_path.Data())) {
+			ppac_file = new TFile(ppac_track_path, "read");
+			ppac_tree = (TTree*)ppac_file->Get("tree");
+			if (ppac_tree) {
+				brill::SetupInput(ppac_tree, ppac_event, "");
+			}
+		}
+
+		Long64_t n_entries = d1_tree->GetEntries();
 		printf("Run %d: %lld events", run, n_entries);
 		fflush(stdout);
 
@@ -188,29 +208,22 @@ int main(int argc, char **argv) {
 				printf("\b\b\b\b%3lld%%", last_percentage);
 				fflush(stdout);
 			}
-			ppac_tree->GetEntry(i);
-			if (d1_tree) d1_tree->GetEntry(i);
+			d1_tree->GetEntry(i);
 			if (d2_tree) d2_tree->GetEntry(i);
 			if (d3_tree) d3_tree->GetEntry(i);
 			if (d4_tree) d4_tree->GetEntry(i);
+			if (beam_tree) beam_tree->GetEntry(i);
+			if (ppac_tree) ppac_tree->GetEntry(i);
 
 			if (!brill::PassD6LiCut(d1_event, d2_event, d3_event, d4_event, calib, d3d4_cut)) continue;
 
 			brill::D6LiAdvancedResult cls = brill::ClassifyD6Li(d1_event, d2_event, d3_event, d4_event, calib, d2d3_cut);
 			if (!cls.passed) continue;
 
-			tree_run_number = run;
-			tree_entry = i;
-			output_tree->Fill();
-
 			double e1 = brill::CalibrateD6LiEnergy(calib, 0, d1_event.energy[0]);
 			double e2 = brill::CalibrateD6LiEnergy(calib, 1, d2_event.energy[0]);
 			double e3 = brill::CalibrateD6LiEnergy(calib, 2, d3_event.energy[0]);
 			double e4 = brill::CalibrateD6LiEnergy(calib, 3, d4_event.energy[0]);
-
-			h_d1d2->Fill(e2, e1);
-			h_d2d3->Fill(e3, e2);
-			h_d3d4->Fill(e4, e3);
 
 			double e1_10C = brill::CalibrateD6LiEnergy(calib, 0, d1_event.energy[cls.e1_10C_idx]);
 			double e1_6Li = brill::CalibrateD6LiEnergy(calib, 0, d1_event.energy[cls.e1_6Li_idx]);
@@ -219,6 +232,67 @@ int main(int argc, char **argv) {
 			double e3_10C = brill::CalibrateD6LiEnergy(calib, 2, d3_event.energy[0]);
 			double e4_10C = brill::CalibrateD6LiEnergy(calib, 3, d4_event.energy[0]);
 
+			out_event.run_number = run;
+			out_event.entry = i;
+			out_event.e1 = e1;
+			out_event.e2 = e2;
+			out_event.e3 = e3;
+			out_event.e4 = e4;
+			out_event.e1_10C = e1_10C;
+			out_event.e2_10C = e2_10C;
+			out_event.e3_10C = e3_10C;
+			out_event.e4_10C = e4_10C;
+			out_event.e1_6Li = e1_6Li;
+			out_event.e2_6Li = e2_6Li;
+			out_event.is_14O = beam_is_14O;
+			out_event.is_13N = beam_is_13N;
+			out_event.is_12C = beam_is_12C;
+			out_event.ppac_valid = (ppac_event.valid != 0);
+			out_event.target_x = ppac_event.target_x;
+			out_event.target_y = ppac_event.target_y;
+			out_event.dir_x = ppac_event.dir_x;
+			out_event.dir_y = ppac_event.dir_y;
+			out_event.t0d2_10C_x = d2_event.x[cls.e2_10C_idx];
+			out_event.t0d2_10C_y = d2_event.y[cls.e2_10C_idx];
+			out_event.t0d2_10C_z = d2_event.z[cls.e2_10C_idx];
+			out_event.t0d2_6Li_x = d2_event.x[cls.e2_6Li_idx];
+			out_event.t0d2_6Li_y = d2_event.y[cls.e2_6Li_idx];
+			out_event.t0d2_6Li_z = d2_event.z[cls.e2_6Li_idx];
+
+			const double target_z = 0.0;
+			if (ppac_event.valid) {
+				double beam_dir[3] = {ppac_event.dir_x, ppac_event.dir_y, 1.0};
+				out_event.theta_beam = brill::AngleWithZ(beam_dir);
+				out_event.phi_beam = std::atan2(beam_dir[1], beam_dir[0]) * 180.0 / M_PI;
+
+				double dir_10C[3] = {
+					out_event.t0d2_10C_x - ppac_event.target_x,
+					out_event.t0d2_10C_y - ppac_event.target_y,
+					out_event.t0d2_10C_z - target_z
+				};
+				double dir_6Li[3] = {
+					out_event.t0d2_6Li_x - ppac_event.target_x,
+					out_event.t0d2_6Li_y - ppac_event.target_y,
+					out_event.t0d2_6Li_z - target_z
+				};
+
+				out_event.theta_10C = brill::AngleBetween(dir_10C, beam_dir);
+				out_event.theta_6Li = brill::AngleBetween(dir_6Li, beam_dir);
+				out_event.opening_angle = brill::AngleBetween(dir_10C, dir_6Li);
+			} else {
+				out_event.theta_beam = 0.0;
+				out_event.phi_beam = 0.0;
+				out_event.theta_10C = 0.0;
+				out_event.theta_6Li = 0.0;
+				out_event.opening_angle = 0.0;
+			}
+
+			output_tree->Fill();
+
+			h_d1d2->Fill(e2, e1);
+			h_d2d3->Fill(e3, e2);
+			h_d3d4->Fill(e4, e3);
+
 			h_e1_10C_e2_10C->Fill(e2_10C, e1_10C);
 			h_e1_6Li_e2_6Li->Fill(e2_6Li, e1_6Li);
 			h_e2_10C_e3_10C->Fill(e3_10C, e2_10C);
@@ -226,11 +300,12 @@ int main(int argc, char **argv) {
 		}
 		printf("\b\b\b\b100%%\n");
 
-		ppac_file->Close();
 		d1_file->Close();
 		if (d2_file) d2_file->Close();
 		if (d3_file) d3_file->Close();
 		if (d4_file) d4_file->Close();
+		if (beam_file) beam_file->Close();
+		if (ppac_file) ppac_file->Close();
 	}
 
 	output_file->cd();
@@ -242,7 +317,7 @@ int main(int argc, char **argv) {
 	h_e1_6Li_e2_6Li->Write();
 	h_e2_10C_e3_10C->Write();
 	h_e3_10C_e4_10C->Write();
-	
+
 	output_file->Close();
 
 	printf("Output written to %s\n", output_path.Data());

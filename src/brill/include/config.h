@@ -97,6 +97,7 @@ struct AppPaths {
 	std::string calibration = "calibration";
 	std::string energy_calculator = "energy_calculator";
 	std::string d_Li6 = "d_Li6";
+	std::string beam = "beam";
 };
 
 struct AppConfig {

@@ -155,6 +155,10 @@ target_link_libraries(
 	config
 	dssd_match_event
 	ppac_track
+	beam_event
+	beam_sort
+	d_6Li_event
+	physics
 	ROOT::RIO
 	ROOT::Tree
 	ROOT::Hist
@@ -162,3 +166,34 @@ target_link_libraries(
 
 add_subdirectory(estimate)
 add_subdirectory(rebuild)
+
+add_executable(GUI_d_Li6 GUI_d_Li6.cpp)
+target_link_libraries(
+	GUI_d_Li6
+	PRIVATE
+	config
+	d_6Li_event
+	rebuild_physics
+	physics
+	lise_physics
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gpad
+	ROOT::Gui
+)
+
+add_executable(sort_beam sort_beam.cpp)
+target_link_libraries(
+	sort_beam
+	PRIVATE
+	config
+	beam_event
+	beam_sort
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gpad
+)

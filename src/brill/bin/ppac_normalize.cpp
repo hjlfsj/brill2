@@ -304,7 +304,7 @@ int main(int argc, char **argv) {
 		("x-sigma", "TSpectrum sigma for X chip peaks.", cxxopts::value<double>()->default_value("2"), "value")
 		("x-threshold", "TSpectrum threshold for X chip peaks.", cxxopts::value<double>()->default_value("0.1"), "value")
 		("y-sigma", "TSpectrum sigma for Y chip peaks.", cxxopts::value<double>()->default_value("3"), "value")
-		("y-threshold", "TSpectrum threshold for Y chip peaks.", cxxopts::value<double>()->default_value("0.1"), "value");
+		("y-threshold", "TSpectrum threshold for Y chip peaks.", cxxopts::value<double>()->default_value("0.05"), "value");
 	
 	auto result = options.parse(argc, argv);
 	if (result.count("help")) {
