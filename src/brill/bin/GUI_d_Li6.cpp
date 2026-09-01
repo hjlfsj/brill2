@@ -105,22 +105,22 @@ static void RebuildAnalysisHistograms() {
 	ac.h_E_6Li_E_10C = new TH2D(
 		"h_E_6Li_E_10C",
 		"E_{6Li} vs E_{10C};E_{10C} (MeV);E_{6Li} (MeV)",
-		500, 0, 500, 500, 0, 200);
+		120, 350, 470, 50, 30, 80);
 	ac.h_E_6Li_E_10C->SetDirectory(0);
 	ac.h_10C_e_theta = new TH2D(
 		"h_10C_e_theta",
 		"^{10}C E-#theta;#theta_{10C} (deg);E_{10C} (MeV)",
-		180, 0, 180, 500, 0, 500);
+		20, 0, 20, 170, 300, 470);
 	ac.h_10C_e_theta->SetDirectory(0);
 	ac.h_6Li_e_theta = new TH2D(
 		"h_6Li_e_theta",
 		"^{6}Li E-#theta;#theta_{6Li} (deg);E_{6Li} (MeV)",
-		180, 0, 180, 500, 0, 500);
+		25, 0, 25, 100, 0, 100);
 	ac.h_6Li_e_theta->SetDirectory(0);
 	ac.h_theta_theta = new TH2D(
 		"h_theta_theta",
 		"#theta_{10C} vs #theta_{6Li};#theta_{10C} (deg);#theta_{6Li} (deg)",
-		180, 0, 180, 180, 0, 180);
+		20, 0, 20, 30, 0, 30);
 	ac.h_theta_theta->SetDirectory(0);
 }
 
@@ -163,6 +163,7 @@ static void FillAnalysisHistograms(TCutG *cut) {
 	int total_events = (int)g_ctx.all_events.size();
 	int passed = 0;
 
+	printf("  --- Selected events (run, entry) ---\n");
 	for (int i = 0; i < total_events; ++i) {
 		if (i % 100 == 0 || i == total_events - 1) {
 			printf("\r  Analysis %d/%d events, passed=%d...",
@@ -179,6 +180,7 @@ static void FillAnalysisHistograms(TCutG *cut) {
 		if (!ev.ppac_valid) continue;
 		if (!cut->IsInside(ev.e2_6Li, ev.e1_6Li)) continue;
 
+		printf("    run=%d  entry=%lld\n", ev.run_number, ev.entry);
 		passed++;
 
 		brill::D6LiKinematics kin = brill::ComputeKinematics(ev);

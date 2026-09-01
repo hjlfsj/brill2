@@ -148,7 +148,7 @@ target_link_libraries(
 	ROOT::Minuit
 )
 
-add_executable(extract_d_Li6 d_6Li/extract_d_Li6.cpp ../src/d_6Li/extract.cpp)
+add_executable(extract_d_Li6 d_6Li/extract_d_Li6.cpp)
 target_link_libraries(
 	extract_d_Li6
 	PRIVATE
@@ -158,6 +158,7 @@ target_link_libraries(
 	beam_event
 	beam_sort
 	d_6Li_event
+	d_6Li_extract
 	physics
 	ROOT::RIO
 	ROOT::Tree
@@ -165,6 +166,7 @@ target_link_libraries(
 )
 
 add_subdirectory(estimate)
+add_subdirectory(analysis)
 add_subdirectory(rebuild)
 
 add_executable(GUI_d_Li6 GUI_d_Li6.cpp)
@@ -196,4 +198,20 @@ target_link_libraries(
 	ROOT::Hist
 	ROOT::Graf
 	ROOT::Gpad
+)
+
+add_executable(GUI_pid GUI_pid.cpp)
+target_link_libraries(
+	GUI_pid
+	PRIVATE
+	config
+	dssd_match_event
+	silicon_event
+	d_6Li_extract
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gpad
+	ROOT::Gui
 )

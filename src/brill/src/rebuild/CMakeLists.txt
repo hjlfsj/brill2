@@ -17,5 +17,6 @@ target_link_libraries(
 	ROOT::Core
 	ROOT::GenVector
 	ROOT::MathCore
+	ROOT::Graf
 	d_6Li_event
 )

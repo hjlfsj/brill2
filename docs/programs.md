@@ -21,6 +21,7 @@
 | `sort_beam` | 束流粒子分类 | `./sort_beam -r 57 -t main` |
 | `extract_d_Li6` | d+6Li 事件提取 | `./extract_d_Li6 -r 57 -e 60 -t main` |
 | `GUI_d_Li6` | d+6Li 交互式可视化 | `./GUI_d_Li6 -c config.toml` |
+| `GUI_pid` | DSSD PID 可视化 (GUI) | `./GUI_pid -c config.toml` |
 
 ## d_6Li/
 
@@ -117,6 +118,12 @@ ingot/ (原始数据)
         ★ 输入: d_Li6/extract_d_Li6_*.root + Cut/cal_d1_d2_6Li_cut.C + assets/ Lise++ 参考线
         ★ 直接读取自包含 D6LiEvent，无需回查 match/beam/calibration
         主界面 4 张原始能量相关图 + 分析画布 4 张物理分析图（E-E、E-θ、θ-θ + Lise++ 参考线）
+
+  ┌─── [13] GUI_pid ─────────────────────────── (DSSD PID 可视化)
+        ★ 输入: match/t0d{1,2,3,4}_*.root + ingot/t0s_*.root + calibration/t0.txt
+        ★ 直接读取 match 文件，应用能量刻度后绘制
+        主画布 4 张 hit0 关联图 + 次画布 4 张 hit1 关联图（按需绘制）
+        hd 字段表示严格 hit 数（==），主画布用 hit0，次画布用 hit1
 ```
 
 ### 三种校准参数的使用阶段
@@ -148,6 +155,7 @@ T0 位置 offset 是**迭代**的：标定结果需手动更新到 `config.toml`
 | **使用** | `rebuild_t0` | 在粒子重建阶段应用：`E_cal = p0 + p1 * E_raw` |
 | **使用** | `extract_d_Li6` | 在填充直方图前对每个 hit 的能量进行刻度，写入 D6LiEvent |
 | **使用** | `GUI_d_Li6` | 直接读取 D6LiEvent 中已刻度的能量，分析画布额外施加 ppac_valid 和 D1-D2 6Li cut |
+| **使用** | `GUI_pid` | 读取 match 文件，应用 T0 刻度后绘制 PID 关联图 |
 
 T0 能量刻度是**迭代**的：`calibrate_t0` → `rebuild_t0` → `calibrate_t0` 循环，直到刻度系数收敛。`extract_d_Li6` 使用收敛后的刻度系数将能量写入 D6LiEvent，`GUI_d_Li6` 直接读取已刻度的值。
 
@@ -195,4 +203,7 @@ T0 能量刻度是**迭代**的：`calibrate_t0` → `rebuild_t0` → `calibrate
 
 # 9. GUI 可视化（直接读取自包含 D6LiEvent，无需重新运行 extract）
 ./GUI_d_Li6 -c config.toml
+
+# 10. DSSD PID 可视化（直接读取 match 文件，应用能量刻度）
+./GUI_pid -c config.toml
 ```
