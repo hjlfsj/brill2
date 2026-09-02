@@ -66,3 +66,25 @@ extract_d_Li6 [OPTION...]
 然后，在rebuild目录下创建新文件rebuild_d_6Li，用于写入之后的计算函数
 然后，根据extract_d_Li6_0057_0092.root文件中的信息，进行计算。首先读取cal_d1_d2_6Li_cut.C 这个cut文件，判断(e2_6Li, e1_6Li)是否在cut区域中，如果在，则对事件进行计算，首先计算6Li和10C粒子的总能量 E_6Li，E_10C，然后
 
+
+
+
+
+3. 10C+4He
+和 d_Li6一致，在bin/10C+4He目录下创建extract_10C_4He.cpp文件，用于提取10C+4He物理分析相关的数据。关于数据结构和筛选条件的源文件和头文件
+放置到src/brill/src/10C+4He和src/brill/include/10C+4He目录下。整体结构和d_6Li一致。
+但是需要注意的是，10C+4He的筛选条件和d_6Li不同，需要根据实际情况进行调整: 10C阻停在d3中，所以只有e1,e2,e3.4He阻停在d4或者s1中。
+因此相比d_Li6，我们需要额外在ingot目录下读取t0s的文件。4He则有e1,e2,e3,e4,e5。e5即为t0s的能量。这里的能量都采用刻度之后的能量。
+和d_Li6一样，我们也使用d2的位置信息计算10C和4He的角度信息。
+
+同时在源文件中命名Pass10C_d3_4He_s1Cut()，用于筛选10C+4He的事件,该cut用于选择10C阻停在d3中，4He阻停在s1中的事件，
+然后extract_10C_4He.cpp文件中目前选择该函数，之后可以扩展为其他函数。
+
+Pass10C_d3_4He_s1Cut()的筛选条件：
+
+- d1.num==2&&d2.num==2&&d3.num==2&&d4.num==1
+- 我们知道match中的每一层hit都已经按照能量大小进行了排序(检查一下)，判断(d3hit[0],d2hit[0])是否在cal_d2_d3_stop_10C_cut(cut文件的存储路径和
+d_Li6一致)。
+- 判断t0s 是否有响应 (t0s_valid)
+- 满足以上三个条件则为目标事件，其中d1,d2,d3,的hit[0](即能量较大的hit)为10C的e1,e2,e3.其余的为4He的e1,e2,e3,e4,e5.
+- 然后即可进行角度，ppac,tof的相关计算

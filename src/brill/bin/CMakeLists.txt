@@ -169,6 +169,39 @@ add_subdirectory(estimate)
 add_subdirectory(analysis)
 add_subdirectory(rebuild)
 
+add_executable(extract_10C_4He 10C+4He/extract_10C_4He.cpp)
+target_link_libraries(
+	extract_10C_4He
+	PRIVATE
+	config
+	dssd_match_event
+	ppac_track
+	beam_event
+	beam_sort
+	silicon_event
+	C10He4_event
+	C10He4_extract
+	physics
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+)
+
+add_executable(GUI_10C_4He GUI_10C_4He.cpp)
+target_link_libraries(
+	GUI_10C_4He
+	PRIVATE
+	config
+	C10He4_event
+	rebuild_physics
+	physics
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gui
+)
+
 add_executable(GUI_d_Li6 GUI_d_Li6.cpp)
 target_link_libraries(
 	GUI_d_Li6

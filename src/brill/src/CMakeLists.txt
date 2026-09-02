@@ -3,6 +3,7 @@ add_subdirectory(energy_calculator)
 add_subdirectory(rebuild)
 add_subdirectory(t0)
 add_subdirectory(d_6Li)
+add_subdirectory(10C+4He)
 add_subdirectory(Lise++)
 add_subdirectory(physics)
 

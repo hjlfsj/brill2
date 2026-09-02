@@ -542,6 +542,19 @@ void AddEventToCanvas(const brill::PpacTrackEvent &track) {
 		pm_target->Draw();
 		g_ctx.objects_3d.push_back(pm_target);
 
+		{
+			double x_at_140 = track.target_x + track.dir_x * 140;
+			double y_at_140 = track.target_y + track.dir_y * 140;
+			TPolyLine3D *pl_beam = new TPolyLine3D(2);
+			pl_beam->SetPoint(0, 0, track.target_x, track.target_y);
+			pl_beam->SetPoint(1, 140, x_at_140, y_at_140);
+			pl_beam->SetLineColor(kRed);
+			pl_beam->SetLineWidth(2);
+			pl_beam->SetLineStyle(2);
+			pl_beam->Draw();
+			g_ctx.objects_3d.push_back(pl_beam);
+		}
+
 		if (g_ctx.t0_dets.size() > 1 && g_ctx.t0_dets[1].event != nullptr &&
 			g_ctx.t0_dets[1].tree != nullptr) {
 			auto &d2 = g_ctx.t0_dets[1];
