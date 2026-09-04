@@ -16,6 +16,7 @@ estimate = "estimate"
 d_Li6 = "d_Li6"
 beam = "beam"
 10C_4He = "10C+4He"
+C12_d_6Li = "C12_d_6Li"
 [t0]
 silicon = ["t0d1", "t0d2", "t0d3", "t0d4", "t0s"]
 

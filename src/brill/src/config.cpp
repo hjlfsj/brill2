@@ -49,6 +49,7 @@ void LoadPaths(const toml::table &table, AppPaths &paths) {
 	LoadPath(table, "energy_calculator", paths.energy_calculator);
 	LoadPath(table, "d_Li6", paths.d_Li6);
 	LoadPath(table, "10C_4He", paths.c10_he4);
+	LoadPath(table, "C12_d_6Li", paths.c12_d_6Li);
 	LoadPath(table, "beam", paths.beam);
 }
 

@@ -88,3 +88,33 @@ d_Li6一致)。
 - 判断t0s 是否有响应 (t0s_valid)
 - 满足以上三个条件则为目标事件，其中d1,d2,d3,的hit[0](即能量较大的hit)为10C的e1,e2,e3.其余的为4He的e1,e2,e3,e4,e5.
 - 然后即可进行角度，ppac,tof的相关计算
+
+
+4. C12_d_6Li
+接下来进行 该反应道的分析，该反应道的末态产物是6Li和两个能量和角度都很接近的 4He.
+我们需要参考10C+4He， d_Li6的分析方法
+/home/ribll2026/ribll2026_www/github_code/brill2/docs/10C_4He.md
+/home/ribll2026/ribll2026_www/github_code/brill2/docs/d_6Li.md
+然后在bin/C12_d_6Li目录下创建extract_6Li_two4He.cpp文件作为主程序，用于提取C12_d_6Li物理分析相关的数据。
+其他配套的程序在src/brill/src/C12_d_6Li和src/brill/include/C12_d_6Li目录下。
+extract_6Li_two4He.cpp 中的筛选条件：
+
+- d1.num==3&&d2.num==3&&d3.num==2&&d4.num==2
+- 选取d1,d2上能量最大的hit，该粒子的pid需要满足 6Li的cut(在brill2/src/brill/Cut/cal_d1_d2_6Li_cut.C)
+
+满足以上条件的事件，即可进行角度，ppac,tof的相关计算。
+这时候6Li已经确定了，因为6Li阻停在了d2中。
+同时，需要对d1,d2,d3,d4上剩下的两个hit进行分类，分别组成两个粒子.此时使用距离最近的原则
+d2上的剩下两个hit分别为He1,He2,然后d1，d3,d4上的两个hit分别和d2上的hit进行距离平方计算，一共两种情况，选择平方和较小的组合,并入
+这两个He的信息中。同时s1中的能量为两个alpha的能量和，也应该记录下来(因为s1只有一个通道，没有分条)。
+角度计算需要分别使用d2的位置信息，计算三个粒子和束流之间的夹角。同时计算两两之间的张角。
+保存8张二维图：
+- 1. e1_6Li的能量（y轴）：e2_6Li的能量（x轴）
+- 2. e1_4He1的能量（y轴）：e2_4He1的能量（x轴）
+- 3. e1_4He2的能量（y轴）：e2_4He2的能量（x轴）
+- 4. e2_4He1的能量（y轴）：e3_4He1的能量（x轴）
+- 5. e2_4He2的能量（y轴）：e3_4He2的能量（x轴）
+- 6. e3_4He1的能量（y轴）：e4_4He1的能量（x轴）
+- 7. e3_4He2的能量（y轴）：e4_4He2的能量（x轴）
+- 8. e4_4He1+e4_4He2的能量（y轴）：e5的能量（x轴）
+

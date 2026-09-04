@@ -187,6 +187,38 @@ target_link_libraries(
 	ROOT::Hist
 )
 
+add_executable(extract_6Li_two4He C12_d_6Li/extract_6Li_two4He.cpp)
+target_link_libraries(
+	extract_6Li_two4He
+	PRIVATE
+	config
+	dssd_match_event
+	ppac_track
+	beam_event
+	beam_sort
+	silicon_event
+	C12D6Li_event
+	C12D6Li_extract
+	physics
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+)
+
+add_executable(GUI_12C_d_6Li GUI_12C_d_6Li.cpp)
+target_link_libraries(
+	GUI_12C_d_6Li
+	PRIVATE
+	config
+	C12D6Li_event
+	lise_physics
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gui
+)
+
 add_executable(GUI_10C_4He GUI_10C_4He.cpp)
 target_link_libraries(
 	GUI_10C_4He

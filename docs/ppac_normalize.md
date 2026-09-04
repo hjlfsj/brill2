@@ -75,7 +75,7 @@ pair_idx = argmin(gap)
 ```
 left_count = pair_idx - 1  （连丝左侧的峰数）
 
-if left_count >= 10:
+if left_count >= 9:
     start_idx = pair_idx - 9    → 取连丝左侧 8 个峰
 else:
     start_idx = pair_idx + 1    → 取连丝右侧 8 个峰

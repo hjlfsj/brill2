@@ -91,7 +91,7 @@ bool FitChipPeaks(
 	
 	int left_count = pair_idx - 1;
 	int start_idx;
-	if (left_count >= 10) {
+	if (left_count >= 9) {
 		start_idx = pair_idx - 9;
 	} else {
 		start_idx = pair_idx + 1;
@@ -302,7 +302,7 @@ int main(int argc, char **argv) {
 		("t,trigger", "Trigger type.", cxxopts::value<std::string>()->default_value("main"), "trigger")
 		("c,config", "Config file path.", cxxopts::value<std::string>()->default_value("config.toml"), "file")
 		("x-sigma", "TSpectrum sigma for X chip peaks.", cxxopts::value<double>()->default_value("2"), "value")
-		("x-threshold", "TSpectrum threshold for X chip peaks.", cxxopts::value<double>()->default_value("0.1"), "value")
+		("x-threshold", "TSpectrum threshold for X chip peaks.", cxxopts::value<double>()->default_value("0.15"), "value")
 		("y-sigma", "TSpectrum sigma for Y chip peaks.", cxxopts::value<double>()->default_value("3"), "value")
 		("y-threshold", "TSpectrum threshold for Y chip peaks.", cxxopts::value<double>()->default_value("0.05"), "value");
 	
