@@ -53,6 +53,10 @@ struct TrackConfig {
 	TrackWindowConfig d4d3_window;
 };
 
+struct PreCalibrationConfig {
+	TrackWindowConfig window = {-2.0, 2.0};
+};
+
 struct StraightParticleConfig {
 	std::string particle;
 	double mean = 0.0;
@@ -111,6 +115,7 @@ struct AppConfig {
 	T0Config t0;
 	NormalizeConfig normalize;
 	TrackConfig track;
+	PreCalibrationConfig pre_calibration;
 	IdentifyConfig identify;
 	PpacConfig ppac;
 	std::map<std::string, SquareDetectorConfig> detectors;

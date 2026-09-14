@@ -286,9 +286,32 @@ z = detector.z_mm;
 
 ---
 
-## 7. 输出后处理
+## 7. 输出后处理：按能量降序排序
 
-`MatchDssdEvent` 在返回前将所有输出粒子按**能量降序**重新排列，确保下游代码始终看到能量最高的粒子在索引 0 位置。
+`MatchDssdEvent` 在匹配完成后，对所有输出粒子按**能量降序**重新排列（[dssd.cpp:L559-L571](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/src/t0/dssd.cpp#L559-L571)），确保下游代码始终看到能量最高的粒子在索引 0 位置。
+
+```cpp
+for (int i = 0; i < output.num - 1; ++i) {
+    for (int j = i + 1; j < output.num; ++j) {
+        if (output.energy[j] > output.energy[i]) {
+            std::swap(output.front_strip[i], output.front_strip[j]);
+            std::swap(output.back_strip[i], output.back_strip[j]);
+            std::swap(output.energy[i], output.energy[j]);
+            std::swap(output.time[i], output.time[j]);
+            std::swap(output.merge_tag[i], output.merge_tag[j]);
+            std::swap(output.energy_diff[i], output.energy_diff[j]);
+            std::swap(output.x[i], output.x[j]);
+            std::swap(output.y[i], output.y[j]);
+            std::swap(output.z[i], output.z[j]);
+        }
+    }
+}
+```
+
+**排序规则**：
+- 使用简单冒泡排序，条件为 `energy[j] > energy[i]`
+- 交换时**所有 9 个字段**同步交换，保证每个粒子的所有属性（strip、energy、time、merge_tag、energy_diff、x、y、z）保持一致
+- 排序后 `output.energy[0]` 为最大能量，`output.energy[output.num-1]` 为最小能量
 
 ---
 

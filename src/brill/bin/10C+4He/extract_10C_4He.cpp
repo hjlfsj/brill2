@@ -246,6 +246,26 @@ int main(int argc, char **argv) {
 				idx_4He_d3 = 0;
 			}
 
+			double dx, dy;
+			dx = std::abs(d1_event.x[idx_10C_d1] - d2_event.x[idx_10C_d2]);
+			dy = std::abs(d1_event.y[idx_10C_d1] - d2_event.y[idx_10C_d2]);
+			if (dx > 2.0 || dy > 2.0) continue;
+			dx = std::abs(d2_event.x[idx_10C_d2] - d3_event.x[idx_10C_d3]);
+			dy = std::abs(d2_event.y[idx_10C_d2] - d3_event.y[idx_10C_d3]);
+			if (dx > 2.0 || dy > 2.0) continue;
+
+			if (d1_hit == 2) {
+				dx = std::abs(d1_event.x[idx_4He_d1] - d2_event.x[idx_4He_d2]);
+				dy = std::abs(d1_event.y[idx_4He_d1] - d2_event.y[idx_4He_d2]);
+				if (dx > 2.0 || dy > 2.0) continue;
+			}
+			dx = std::abs(d2_event.x[idx_4He_d2] - d3_event.x[idx_4He_d3]);
+			dy = std::abs(d2_event.y[idx_4He_d2] - d3_event.y[idx_4He_d3]);
+			if (dx > 2.0 || dy > 2.0) continue;
+			dx = std::abs(d3_event.x[idx_4He_d3] - d4_event.x[0]);
+			dy = std::abs(d3_event.y[idx_4He_d3] - d4_event.y[0]);
+			if (dx > 2.0 || dy > 2.0) continue;
+
 			double e1_10C = brill::CalibrateC10He4Energy(calib, 0, d1_event.energy[idx_10C_d1]);
 			double e2_10C = brill::CalibrateC10He4Energy(calib, 1, d2_event.energy[idx_10C_d2]);
 			double e3_10C = brill::CalibrateC10He4Energy(calib, 2, d3_event.energy[idx_10C_d3]);

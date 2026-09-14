@@ -118,3 +118,35 @@ d2上的剩下两个hit分别为He1,He2,然后d1，d3,d4上的两个hit分别和
 - 7. e3_4He2的能量（y轴）：e4_4He2的能量（x轴）
 - 8. e4_4He1+e4_4He2的能量（y轴）：e5的能量（x轴）
 
+
+
+5. 新的刻度输入文件
+我们需要通过match得到的文件，生成新的刻度输入文件。步骤分为两步，首先根据一定的条件绘制二维pid图
+以便于手动检验cut的选择是否正确，其次是把相同条件下筛选出来的点填入TGraph中,作为后续的拟合数据。
+
+- 首先是d1-d2的pid图，选取两层上的第一个hit，然后要求dx<2 mm, dy<2 mm,将满足条件的点填入（d1_e[0],d2_e[0]）分别填入
+TH2D 和 TGraph中
+- 然后是d2-d3的pid图，选取两层上的第一个hit，然后要求dx<2 mm, dy<2 mm,将满足条件的点填入（d2_e[0],d3_e[0]）分别填入
+TH2D 和 TGraph中
+- 最后是d3-d4的pid图，选取两层上的第一个hit，然后要求dx<2 mm, dy<2 mm,将满足条件的点填入（d3_e[0],d4_e[0]）分别填入
+TH2D 和 TGraph中
+- 最后是d4-s1的pid图，此时要求d1_hit=d2_hit=d3_hit=d4_hit=1,将满足条件的点填入（d4_e[0],s1_e[0]）分别填入
+TH2D 和 TGraph中
+
+其他配置和运行方式和normalize,match等程序一致，把源文件和生成的文件放进estimate目录下，命名为pre_calibration。
+先陈述行动方案，并提出建议和疑问
+
+
+
+6. 新的刻度 calibration_t0
+
+关于程序的整体输入输出框架在/home/ribll2026/ribll2026_www/github_code/brill2/docs/calibrate_t0.md 文件中已经写明
+关于算法/home/ribll2026/ribll2026_www/github_code/brill2/reference/calibrate_t0.cpp， 可以以这个旧的程序作为参考
+
+我这里要重申一下拟合算法：
+
+- 输入的拟合数据为TGraph，其中x轴为下一层的adc,y轴为上一层的adc。例如(d1_e,d2_e)
+- 生成的delta_e的理论曲线也应该为相应粒子的 （下一层沉积能量， 上一层沉积能量）
+- 然后将理论曲线拼接一个多参数的TF1，和 拼接的 TGraph中的散点进行拟合
+
+在得到系数之后，使用系数重新计算输入文件中的四个TH2D中的点,进行刻度，并绘制常见粒子的理论曲线进行对照

@@ -143,8 +143,9 @@ target_link_libraries(
 	calibrate_t0
 	PRIVATE
 	config
-	t0_event
 	energy_calculator
+	ROOT::Graf
+	ROOT::Gpad
 	ROOT::Minuit
 )
 

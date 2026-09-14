@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/CMakeFiles/catima-populate"
+		},
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/CMakeFiles/catima-populate.rule"
+		},
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/CMakeFiles/catima-populate-complete.rule"
+		},
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/catima-populate-prefix/src/catima-populate-stamp/catima-populate-build.rule"
+		},
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/catima-populate-prefix/src/catima-populate-stamp/catima-populate-configure.rule"
+		},
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/catima-populate-prefix/src/catima-populate-stamp/catima-populate-download.rule"
+		},
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/catima-populate-prefix/src/catima-populate-stamp/catima-populate-install.rule"
+		},
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/catima-populate-prefix/src/catima-populate-stamp/catima-populate-mkdir.rule"
+		},
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/catima-populate-prefix/src/catima-populate-stamp/catima-populate-patch.rule"
+		},
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/catima-populate-prefix/src/catima-populate-stamp/catima-populate-test.rule"
+		},
+		{
+			"file" : "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/catima-populate-prefix/src/catima-populate-stamp/catima-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"catima-populate"
+		],
+		"name" : "catima-populate"
+	}
+}

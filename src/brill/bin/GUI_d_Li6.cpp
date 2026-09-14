@@ -13,8 +13,10 @@
 #include <TGClient.h>
 #include <TGFileDialog.h>
 #include <TGFrame.h>
+#include <TGLabel.h>
 #include <TGLayout.h>
 #include <TGMenu.h>
+#include <TGNumberEntry.h>
 #include <TGStatusBar.h>
 #include <TGraph.h>
 #include <TH2D.h>
@@ -53,6 +55,14 @@ struct GUIContext {
 	TGMainFrame *main_frame = nullptr;
 	TGStatusBar *status_bar = nullptr;
 
+	TGTextButton *btn_all = nullptr;
+	TGTextButton *btn_14O = nullptr;
+	TGTextButton *btn_13N = nullptr;
+	TGTextButton *btn_12C = nullptr;
+	TGTextButton *btn_draw = nullptr;
+	TGNumberEntry *entry_run_min = nullptr;
+	TGNumberEntry *entry_run_max = nullptr;
+
 	BeamCanvases bcs;
 	AnalysisCanvas ac;
 
@@ -65,6 +75,27 @@ struct GUIContext {
 
 static GUIContext g_ctx;
 static volatile int g_menu_action = 0;
+static volatile int g_beam_filter = 0;
+static volatile bool g_beam_changed = false;
+static volatile bool g_redraw = false;
+
+static const char *BeamLabel() {
+	switch (g_beam_filter) {
+		case 1: return "14O";
+		case 2: return "13N";
+		case 3: return "12C";
+		default: return "All";
+	}
+}
+
+static bool PassBeamFilter(const brill::D6LiEvent &ev) {
+	switch (g_beam_filter) {
+		case 1: return ev.is_14O;
+		case 2: return ev.is_13N;
+		case 3: return ev.is_12C;
+		default: return true;
+	}
+}
 
 static void RebuildHistograms() {
 	auto &bc = g_ctx.bcs;
@@ -73,24 +104,26 @@ static void RebuildHistograms() {
 	if (bc.h_e2_10C_e3_10C) delete bc.h_e2_10C_e3_10C;
 	if (bc.h_e3_10C_e4_10C) delete bc.h_e3_10C_e4_10C;
 
+	TString label = TString::Format(" (%s)", BeamLabel());
+
 	bc.h_e1_10C_e2_10C = new TH2D(
 		"h_e1_10C_e2_10C",
-		"E1_10C vs E2_10C (all);E2_10C (MeV);E1_10C (MeV)",
+		TString::Format("E1_10C vs E2_10C%s;E2_10C (MeV);E1_10C (MeV)", label.Data()),
 		1000, 0, 400, 1000, 0, 25);
 	bc.h_e1_10C_e2_10C->SetDirectory(0);
 	bc.h_e1_6Li_e2_6Li = new TH2D(
 		"h_e1_6Li_e2_6Li",
-		"E1_6Li vs E2_6Li (all);E2_6Li (MeV);E1_6Li (MeV)",
+		TString::Format("E1_6Li vs E2_6Li%s;E2_6Li (MeV);E1_6Li (MeV)", label.Data()),
 		1000, 0, 400, 1000, 0, 25);
 	bc.h_e1_6Li_e2_6Li->SetDirectory(0);
 	bc.h_e2_10C_e3_10C = new TH2D(
 		"h_e2_10C_e3_10C",
-		"E2_10C vs E3_10C (all);E3_10C (MeV);E2_10C (MeV)",
+		TString::Format("E2_10C vs E3_10C%s;E3_10C (MeV);E2_10C (MeV)", label.Data()),
 		1000, 0, 350, 1000, 0, 400);
 	bc.h_e2_10C_e3_10C->SetDirectory(0);
 	bc.h_e3_10C_e4_10C = new TH2D(
 		"h_e3_10C_e4_10C",
-		"E3_10C vs E4_10C (all);E4_10C (MeV);E3_10C (MeV)",
+		TString::Format("E3_10C vs E4_10C%s;E4_10C (MeV);E3_10C (MeV)", label.Data()),
 		1000, 0, 250, 1000, 0, 300);
 	bc.h_e3_10C_e4_10C->SetDirectory(0);
 }
@@ -145,6 +178,8 @@ static void FillHistograms() {
 
 		const auto &ev = g_ctx.all_events[i];
 
+		if (!PassBeamFilter(ev)) continue;
+
 		passed++;
 		g_ctx.bcs.h_e1_10C_e2_10C->Fill(ev.e2_10C, ev.e1_10C);
 		g_ctx.bcs.h_e1_6Li_e2_6Li->Fill(ev.e2_6Li, ev.e1_6Li);
@@ -177,6 +212,7 @@ static void FillAnalysisHistograms(TCutG *cut) {
 
 		const auto &ev = g_ctx.all_events[i];
 
+		if (!PassBeamFilter(ev)) continue;
 		if (!ev.ppac_valid) continue;
 		if (!cut->IsInside(ev.e2_6Li, ev.e1_6Li)) continue;
 
@@ -249,6 +285,19 @@ static void DrawAnalysisHistograms() {
 	ac.canvas->Update();
 }
 
+static void OnBeamChanged() {
+	if (g_ctx.current_file.empty()) return;
+	FillHistograms();
+	DrawHistograms();
+
+	std::string cut_path = "src/brill/Cut/cal_d1_d2_6Li_cut.C";
+	TCutG *cut = brill::LoadCutGFromFile(cut_path);
+	FillAnalysisHistograms(cut);
+	DrawAnalysisHistograms();
+}
+
+static void OnBeamChanged();
+
 void OnFileOpen() {
 	TGFileInfo fi;
 	const char *filetypes[] = {"ROOT files", "*.root", nullptr, nullptr};
@@ -280,14 +329,29 @@ void OnFileOpen() {
 
 	g_ctx.all_events.clear();
 	Long64_t n_entries = input_tree->GetEntries();
+
+	int run_min = g_ctx.entry_run_min ? g_ctx.entry_run_min->GetIntNumber() : 0;
+	int run_max = g_ctx.entry_run_max ? g_ctx.entry_run_max->GetIntNumber() : 0;
+	bool apply_run_filter = (run_min > 0 || run_max > 0);
+
 	printf("  Loading %lld events from d_Li6 file...\n", n_entries);
+	if (apply_run_filter) {
+		printf("  Run filter: %d - %d\n", run_min > 0 ? run_min : 0, run_max > 0 ? run_max : 99999);
+	}
+	int skipped = 0;
 	for (Long64_t i = 0; i < n_entries; ++i) {
 		input_tree->GetEntry(i);
+		if (apply_run_filter) {
+			if (run_min > 0 && ev.run_number < run_min) { skipped++; continue; }
+			if (run_max > 0 && ev.run_number > run_max) { skipped++; continue; }
+		}
 		g_ctx.all_events.push_back(ev);
 	}
 	input_file->Close();
 
-	printf("  Loaded %zu events\n", g_ctx.all_events.size());
+	printf("  Loaded %zu events", g_ctx.all_events.size());
+	if (apply_run_filter) printf(" (skipped %d)", skipped);
+	printf("\n");
 
 	g_ctx.status_bar->SetText("Filling histograms...");
 	gSystem->ProcessEvents();
@@ -334,6 +398,15 @@ int main(int argc, char **argv) {
 			(unsigned long)&g_menu_action).Data()
 	);
 	gInterpreter->Declare("void HandleMenuSlot(Int_t id) { g_menu_action = (int)id; }");
+	gInterpreter->Declare(
+		TString::Format("volatile int &g_beam_filter = *((volatile int*)%lu);",
+			(unsigned long)&g_beam_filter).Data());
+	gInterpreter->Declare(
+		TString::Format("volatile bool &g_beam_changed = *((volatile bool*)%lu);",
+			(unsigned long)&g_beam_changed).Data());
+	gInterpreter->Declare(
+		TString::Format("volatile bool &g_redraw = *((volatile bool*)%lu);",
+			(unsigned long)&g_redraw).Data());
 
 	TGMainFrame *main_frame = new TGMainFrame(gClient->GetRoot(), 1200, 900);
 	main_frame->SetWindowName("GUI_d_Li6");
@@ -349,7 +422,53 @@ int main(int argc, char **argv) {
 	menu_bar->AddPopup("&File", menu_file, new TGLayoutHints(kLHintsTop | kLHintsLeft, 0, 0, 0, 0));
 	main_frame->AddFrame(menu_bar, new TGLayoutHints(kLHintsTop | kLHintsExpandX));
 
-	TRootEmbeddedCanvas *embed = new TRootEmbeddedCanvas("embed_main", main_frame, 1200, 800);
+	TGHorizontalFrame *beam_frame = new TGHorizontalFrame(main_frame, 400, 30);
+	TGLabel *beam_label = new TGLabel(beam_frame, "Beam: ");
+	beam_frame->AddFrame(beam_label, new TGLayoutHints(kLHintsCenterY, 4, 2, 2, 2));
+
+	g_ctx.btn_all = new TGTextButton(beam_frame, "All");
+	g_ctx.btn_14O = new TGTextButton(beam_frame, "14O");
+	g_ctx.btn_13N = new TGTextButton(beam_frame, "13N");
+	g_ctx.btn_12C = new TGTextButton(beam_frame, "12C");
+
+	g_ctx.btn_all->SetCommand("g_beam_filter = 0; g_beam_changed = true;");
+	g_ctx.btn_14O->SetCommand("g_beam_filter = 1; g_beam_changed = true;");
+	g_ctx.btn_13N->SetCommand("g_beam_filter = 2; g_beam_changed = true;");
+	g_ctx.btn_12C->SetCommand("g_beam_filter = 3; g_beam_changed = true;");
+
+	beam_frame->AddFrame(g_ctx.btn_all, new TGLayoutHints(kLHintsCenterY, 4, 2, 2, 2));
+	beam_frame->AddFrame(g_ctx.btn_14O, new TGLayoutHints(kLHintsCenterY, 4, 2, 2, 2));
+	beam_frame->AddFrame(g_ctx.btn_13N, new TGLayoutHints(kLHintsCenterY, 4, 2, 2, 2));
+	beam_frame->AddFrame(g_ctx.btn_12C, new TGLayoutHints(kLHintsCenterY, 4, 2, 2, 2));
+
+	TGLabel *run_label = new TGLabel(beam_frame, "  Run: ");
+	beam_frame->AddFrame(run_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
+
+	TGNumberEntry *entry_run_min = new TGNumberEntry(beam_frame, 0, 5, -1,
+		TGNumberFormat::kNESInteger,
+		TGNumberFormat::kNEANonNegative,
+		TGNumberFormat::kNELLimitMinMax, 0, 99999);
+	beam_frame->AddFrame(entry_run_min, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+	g_ctx.entry_run_min = entry_run_min;
+
+	TGLabel *dash_label = new TGLabel(beam_frame, "-");
+	beam_frame->AddFrame(dash_label, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+
+	TGNumberEntry *entry_run_max = new TGNumberEntry(beam_frame, 0, 5, -1,
+		TGNumberFormat::kNESInteger,
+		TGNumberFormat::kNEANonNegative,
+		TGNumberFormat::kNELLimitMinMax, 0, 99999);
+	beam_frame->AddFrame(entry_run_max, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+	g_ctx.entry_run_max = entry_run_max;
+
+	TGTextButton *btn_draw = new TGTextButton(beam_frame, "Draw");
+	btn_draw->SetCommand("g_redraw = true;");
+	beam_frame->AddFrame(btn_draw, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
+	g_ctx.btn_draw = btn_draw;
+
+	main_frame->AddFrame(beam_frame, new TGLayoutHints(kLHintsTop | kLHintsLeft, 4, 4, 2, 2));
+
+	TRootEmbeddedCanvas *embed = new TRootEmbeddedCanvas("embed_main", main_frame, 1200, 700);
 	main_frame->AddFrame(embed, new TGLayoutHints(kLHintsExpandX | kLHintsExpandY, 2, 2, 2, 2));
 	g_ctx.bcs.embed = embed;
 	g_ctx.bcs.canvas = embed->GetCanvas();
@@ -374,6 +493,16 @@ int main(int argc, char **argv) {
 			OnFileOpen();
 		} else if (g_menu_action == 2) {
 			break;
+		}
+		if (g_beam_changed) {
+			g_beam_changed = false;
+			OnBeamChanged();
+		}
+		if (g_redraw) {
+			g_redraw = false;
+			if (!g_ctx.current_file.empty()) {
+				OnFileOpen();
+			}
 		}
 		g_menu_action = 0;
 	}

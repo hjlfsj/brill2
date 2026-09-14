@@ -1,6 +1,6 @@
 workspace = "/data/disk1/ribll2026_www_data"
 trigger = "t1"
-jump_run = [63, 81, 86, 106, 112,124,125,126, 1096, 1101, 1103, 1104, 1105, 1138, 1140, 1141, 1145, 1147]
+jump_run = [63, 81, 86, 106, 112,124,125,126,154, 1096, 1101, 1103, 1104, 1105, 1138, 1140, 1141, 1145, 1147]
 assets = "assets"
 
 [paths]
@@ -98,17 +98,18 @@ z_mm = 0.0
 run = 57
 use = 57
 [[normalize.run]]
-run = 1091
-use = 1091
+run = 77
+use = 77
 [[normalize.run]]
-run = 1097
-use = 1097
+run = 97
+use = 97
 [[normalize.run]]
-run = 1106
-use = 1106
+run = 117
+use = 117
 [[normalize.run]]
-run = 1107
-use = 1107
+run = 137
+use = 137
+
 [[normalize.t0d1.strips]]
 index = 0
 norm_side = 1
@@ -146,109 +147,112 @@ index = 0
 norm_side = 1
 ref = [31, 31]
 norm = [30, 46]
-ref_energy = [200.0, 60000.0]
-norm_energy = [200.0, 60000.0]
+ref_energy = [1000.0, 60000.0]
+norm_energy = [1000.0, 60000.0]
 
 [[normalize.t0d2.strips]]
 index = 1
 norm_side = 0
 ref = [30, 46]
 norm = [20, 40]
-ref_energy = [200.0, 60000.0]
-norm_energy = [200.0, 60000.0]
+ref_energy = [1000.0, 60000.0]
+norm_energy = [1000.0, 60000.0]
 
 [[normalize.t0d2.strips]]
 index = 2
 norm_side = 1
 ref = [20, 40]
 norm = [10, 50]
-ref_energy = [200.0, 60000.0]
-norm_energy = [200.0, 60000.0]
+ref_energy = [1000.0, 60000.0]
+norm_energy = [1000.0, 60000.0]
 
 [[normalize.t0d2.strips]]
 index = 3
 norm_side = 0
 ref = [10, 50]
 norm = [0, 63]
-ref_energy = [200.0, 60000.0]
-norm_energy = [200.0, 60000.0]
+ref_energy = [1000.0, 60000.0]
+norm_energy = [1000.0, 60000.0]
 
 [[normalize.t0d2.strips]]
 index = 4
 norm_side = 1
 ref = [0, 63]
 norm = [0, 63]
-ref_energy = [200.0, 60000.0]
-norm_energy = [200.0, 60000.0]
+ref_energy = [1000.0, 60000.0]
+norm_energy = [1000.0, 60000.0]
 
 [[normalize.t0d3.strips]]
 index = 0
 norm_side = 1
 ref = [15, 15]
 norm = [11, 15]
-ref_energy = [500.0, 60000.0]
-norm_energy = [500.0, 60000.0]
+ref_energy = [1000.0, 60000.0]
+norm_energy = [1000.0, 60000.0]
 
 [[normalize.t0d3.strips]]
 index = 1
 norm_side = 0
 ref = [11, 15]
 norm = [16, 27]
-ref_energy = [500.0, 60000.0]
-norm_energy = [500.0, 60000.0]
+ref_energy = [1000.0, 60000.0]
+norm_energy = [1000.0, 60000.0]
 
 [[normalize.t0d3.strips]]
 index = 2
 norm_side = 1
 ref = [16, 27]
 norm = [0, 31]
-ref_energy = [500.0, 60000.0]
-norm_energy = [500.0, 60000.0]
+ref_energy = [1000.0, 60000.0]
+norm_energy = [1000.0, 60000.0]
 
 [[normalize.t0d3.strips]]
 index = 3
 norm_side = 0
 ref = [0, 31]
 norm = [0, 31]
-ref_energy = [500.0, 60000.0]
-norm_energy = [500.0, 60000.0]
+ref_energy = [1000.0, 60000.0]
+norm_energy = [1000.0, 60000.0]
 
 [[normalize.t0d4.strips]]
 index = 0
 norm_side = 1
 ref = [15, 15]
 norm = [9, 15]
-ref_energy = [0.0, 60000.0]
-norm_energy = [0.0, 60000.0]
+ref_energy = [500.0, 60000.0]
+norm_energy = [500.0, 60000.0]
 
 [[normalize.t0d4.strips]]
 index = 1
 norm_side = 0
 ref = [9, 15]
 norm = [6, 22]
-ref_energy = [0.0, 60000.0]
-norm_energy = [0.0, 60000.0]
+ref_energy = [500.0, 60000.0]
+norm_energy = [500.0, 60000.0]
 
 [[normalize.t0d4.strips]]
 index = 2
 norm_side = 1
 ref = [6, 22]
 norm = [0, 31]
-ref_energy = [0.0, 60000.0]
-norm_energy = [0.0, 60000.0]
+ref_energy = [500.0, 60000.0]
+norm_energy = [500.0, 60000.0]
 
 [[normalize.t0d4.strips]]
 index = 3
 norm_side = 0
 ref = [0, 31]
 norm = [0, 31]
-ref_energy = [0.0, 60000.0]
-norm_energy = [0.0, 60000.0]
+ref_energy = [500.0, 60000.0]
+norm_energy = [500.0, 60000.0]
 
 [track]
 d2d1_window = [-4.0, 2.0]
 d3d2_window = [-4.0, 4.0]
 d4d3_window = [-5.0, 5.0]
+
+[pre_calibration]
+window = [-2.0, 2.0]
 
 [identify.straight.t0d1d2]
 A = 0.1075

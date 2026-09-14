@@ -114,7 +114,10 @@ int main(int argc, char **argv) {
 			normalize_dir.c_str(),
 			detector_name.c_str(),
 			normalize_file_run
-		);		
+		);
+		std::cout << "Reading normalize parameters for " << detector_name << ":\n"
+			<< "  front: " << front_path << "\n"
+			<< "  back:  " << back_path << "\n";
 		if (brill::ReadDssdNormalizeParameters(
 			front_path.Data(), back_path.Data(), parameters
 		)) {

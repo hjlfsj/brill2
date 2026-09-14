@@ -1,0 +1,15 @@
+# This is a generated file and its contents are an internal implementation detail.
+# The download step will be re-executed if anything in this file changes.
+# No other meaning or use of this file is supported.
+
+method=git
+command=/usr/local/bin/cmake;-P;/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-subbuild/catima-populate-prefix/tmp/catima-populate-gitclone.cmake
+source_dir=/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps/catima-src
+work_dir=/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/_deps
+repository=https://github.com/kinstaky/catima.git
+remote=origin
+init_submodules=TRUE
+recurse_submodules=--recursive
+submodules=
+CMP0097=NEW
+

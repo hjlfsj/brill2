@@ -1,5 +1,6 @@
 #include "include/t0/dssd.h"
 
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <set>
@@ -81,6 +82,9 @@ int NormalizeStrips(
 				if (((bs == 18) || (bs == 19)) && (fe > 12000)) continue;
 			}
 		
+		// jump if energy not finite
+			if (!std::isfinite(be) || !std::isfinite(fe)) continue;
+
 		if (config.norm_side == 0) {
 			// jump if not reference strips
 			if (bs < config.ref[0] || bs > config.ref[1]) continue;
@@ -92,7 +96,9 @@ int NormalizeStrips(
 			if (be < config.ref_energy[0] || be > config.ref_energy[1]) continue;
 			if (fe < config.norm_energy[0] || fe > config.norm_energy[1]) continue;
 			// fill to graph
-			ge[fs].AddPoint(fe, NormEnergy(parameters, 1, bs, be));
+			double ne = NormEnergy(parameters, 1, bs, be);
+			if (!std::isfinite(ne)) continue;
+			ge[fs].AddPoint(fe, ne);
 		} else {
 			// jump if not reference strips
 			if (fs < config.ref[0]|| fs > config.ref[1]) continue;
@@ -103,13 +109,10 @@ int NormalizeStrips(
 			// jump if energy out of range
 			if (fe < config.ref_energy[0] || fe > config.ref_energy[1]) continue;
 			if (be < config.norm_energy[0] || be > config.norm_energy[1]) continue;
-	/*std::cout << config.ref[0] << ", " << config.ref[1] << ", "
-		<< config.norm[0] << ", " << config.norm[1] << ", "
-		<< config.ref_energy[0] << ", " << config.ref_energy[1] << ", "
-		<< config.norm_energy[0] << ", " << config.norm_energy[1] << ", "
-		<< fe << ", " << be << ", " << fs << ", " << bs << "\n";*/
 			// fill to graph
-			ge[bs].AddPoint(be, NormEnergy(parameters, 0, fs, fe));
+			double ne = NormEnergy(parameters, 0, fs, fe);
+			if (!std::isfinite(ne)) continue;
+			ge[bs].AddPoint(be, ne);
 		}
 	}
 	// show finish
@@ -125,28 +128,37 @@ int NormalizeStrips(
 		// if (has_normalized[offset+i]) continue;
 		// only fits when over 10 points
 		if (ge[i].GetN() > 10) {
-			// fitting function
-			TF1 energy_fit("efit", "pol1", 0, 60000);
-			// set initial value
-			energy_fit.SetParameter(0, 0.0);
-			energy_fit.SetParameter(1, 1.0);
-			//energy_fit.SetParLimits(2, -1e-6, 1e-6);
-			//energy_fit.SetParameter(2, 0.0);
-			// fit
-			ge[i].Fit(&energy_fit, "QR+ ROB=0.8");
+			TF1 efit(TString::Format("efit_%c%d", "fb"[side], i), "pol1", 0, 60000);
+			efit.SetParameter(0, 0.0);
+			efit.SetParameter(1, 1.0);
+			// check for NaN/Inf in data before robust fit
+			bool has_bad = false;
+			double *gx = ge[i].GetX();
+			double *gy = ge[i].GetY();
+			int npt = ge[i].GetN();
+			for (int j = 0; j < npt; ++j) {
+				if (!std::isfinite(gx[j]) || !std::isfinite(gy[j])) {
+					has_bad = true;
+					break;
+				}
+			}
+			if (has_bad) {
+				printf("warning: side %d strip %d has NaN/Inf, OLS fallback\n", side, i);
+				ge[i].Fit(&efit, "QR+");
+			} else {
+				ge[i].Fit(&efit, "QR+ ROB=2.0");
+			}
 			// store the normalized parameters
 			if (config.norm_side == 0) {
-				parameters.front_p0[i] = energy_fit.GetParameter(0);
-				parameters.front_p1[i] = energy_fit.GetParameter(1);
-				//parameters.front_p2[i] = energy_fit.GetParameter(2);
-				front_chi2[i] = energy_fit.GetChisquare();
-				front_ndf[i] = energy_fit.GetNDF();
+				parameters.front_p0[i] = efit.GetParameter(0);
+				parameters.front_p1[i] = efit.GetParameter(1);
+				front_chi2[i] = efit.GetChisquare();
+				front_ndf[i] = efit.GetNDF();
 			} else {
-				parameters.back_p0[i] = energy_fit.GetParameter(0);
-				parameters.back_p1[i] = energy_fit.GetParameter(1);
-				//parameters.back_p2[i] = energy_fit.GetParameter(2);
-				back_chi2[i] = energy_fit.GetChisquare();
-				back_ndf[i] = energy_fit.GetNDF();
+				parameters.back_p0[i] = efit.GetParameter(0);
+				parameters.back_p1[i] = efit.GetParameter(1);
+				back_chi2[i] = efit.GetChisquare();
+				back_ndf[i] = efit.GetNDF();
 			}
 		}
 		else{
@@ -187,7 +199,6 @@ int NormalizeStrips(
 		for (int i = config.norm[0]; i <= config.norm[1]; ++i) {
 			res[i].Reset();
 			res[i] = TH1D(TString::Format("res%c%d", "fb"[side], i),TString::Format("res%c%d", "fb"[side], i) , 1000, -5000.0, 5000.0);
-			// if (has_normalized[offset+i]) continue;
 			int point = ge[i].GetN();
 			double *gex = ge[i].GetX();
 			double *gey = ge[i].GetY();
@@ -198,12 +209,14 @@ int NormalizeStrips(
 			if (side == 0) g_front_chi2ndf->AddPoint(i, front_chi2[i]/front_ndf[i]);
 			if (side == 1) g_back_chi2ndf->AddPoint(i, back_chi2[i]/back_ndf[i]);
 			res[i].Write(TString::Format("res%c%d", "fb"[side], i));
+			res[i].SetDirectory(nullptr);
 		}
 		g_back_chi2ndf->SetLineColor(kRed);
 		g_front_chi2ndf->SetLineColor(kBlue);
 		if (side == 0) g_front_chi2ndf->Write("g_f_chi2ndf");
 		if (side == 1) g_back_chi2ndf->Write("g_b_chi2ndf");
 		h_total_res.Write("h_total_res");
+		h_total_res.SetDirectory(nullptr);
 	}
 	return 0;
 
@@ -370,4 +383,3 @@ int main(int argc, char **argv) {
 
 	return 0;
 }
-

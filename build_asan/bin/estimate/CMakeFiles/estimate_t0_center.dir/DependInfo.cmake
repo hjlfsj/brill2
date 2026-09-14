@@ -1,0 +1,24 @@
+
+# Consider dependencies only in project.
+set(CMAKE_DEPENDS_IN_PROJECT_ONLY OFF)
+
+# The set of languages for which implicit dependencies are needed:
+set(CMAKE_DEPENDS_LANGUAGES
+  )
+
+# The set of dependency files which are needed:
+set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/home/ribll2026/ribll2026_www/github_code/brill2/src/brill/bin/estimate/estimate_t0_center.cpp" "bin/estimate/CMakeFiles/estimate_t0_center.dir/estimate_t0_center.cpp.o" "gcc" "bin/estimate/CMakeFiles/estimate_t0_center.dir/estimate_t0_center.cpp.o.d"
+  )
+
+# Targets to which this target links.
+set(CMAKE_TARGET_LINKED_INFO_FILES
+  "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/src/CMakeFiles/config.dir/DependInfo.cmake"
+  "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/src/t0/CMakeFiles/t0_dssd.dir/DependInfo.cmake"
+  "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/src/event/ingot/CMakeFiles/dssd_event.dir/DependInfo.cmake"
+  "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/src/event/t0/CMakeFiles/dssd_match.dir/DependInfo.cmake"
+  "/home/ribll2026/ribll2026_www/github_code/brill2/build_asan/src/event/t0/CMakeFiles/dssd_match_event.dir/DependInfo.cmake"
+  )
+
+# Fortran module output directory.
+set(CMAKE_Fortran_TARGET_MODULE_DIR "")

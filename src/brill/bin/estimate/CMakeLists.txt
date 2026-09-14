@@ -53,3 +53,25 @@ target_link_libraries(
 	silicon_event
 	ROOT::Graf
 )
+
+add_executable(compare_normalize compare_normalize.cpp)
+target_link_libraries(
+	compare_normalize
+	PRIVATE
+	config
+	t0_dssd
+	ROOT::Graf
+	ROOT::Gpad
+	ROOT::Hist
+	ROOT::Tree
+)
+
+add_executable(pre_calibration pre_calibration.cpp)
+target_link_libraries(
+	pre_calibration
+	PRIVATE
+	config
+	silicon_event
+	t0_dssd
+	ROOT::Graf
+)

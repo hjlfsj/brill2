@@ -142,6 +142,13 @@ void LoadTrack(const toml::table &table, TrackConfig &track) {
 	LoadTrackWindow(table, "d4d3_window", track.d4d3_window);
 }
 
+void LoadPreCalibration(
+	const toml::table &table,
+	PreCalibrationConfig &pre_calibration
+) {
+	LoadTrackWindow(table, "window", pre_calibration.window);
+}
+
 void LoadT0(const toml::table &table, T0Config &t0) {
 	if (const auto *silicon = table["silicon"].as_array()) {
 		t0.silicon.clear();
@@ -306,6 +313,9 @@ int LoadConfig(const std::string &path, AppConfig &config) {
 		}
 		if (const auto *track = table["track"].as_table()) {
 			LoadTrack(*track, config.track);
+		}
+		if (const auto *pre_calibration = table["pre_calibration"].as_table()) {
+			LoadPreCalibration(*pre_calibration, config.pre_calibration);
 		}
 		if (const auto *identify = table["identify"].as_table()) {
 			LoadIdentify(*identify, config.identify);
