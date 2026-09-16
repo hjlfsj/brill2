@@ -141,36 +141,54 @@ thickness_um = 1500.0
 4. 通过 `gROOT->ProcessLine(".x 文件名")` 执行宏，加载 TCutG
 5. 通过 `gROOT->FindObject("d2d3_7Be_stop")` 获取 TCutG 指针并 Clone 保存
 
-### 4.3 截断筛选逻辑
+### 4.3 截断筛选逻辑（双重筛选：TCutG + left/right）
 
-对每个加载的 cut，遍历对应层对的 TGraph 中所有数据点：
+对每个加载的 cut，遍历对应层对的 TGraph 中所有数据点，同时使用 TCutG 和 pid_info 的 left/right 范围进行双重筛选：
 
 ```cpp
 for (int pt = 0; pt < g->GetN(); ++pt) {
-    double x = g->GetPointX(pt);   // 深层探测器 ADC
-    double y = g->GetPointY(pt);   // 浅层探测器 ADC
-    if (cut.cut->IsInside(x, y)) {
-        gcali.AddPoint(x + cut.pair->offset, y);
+    double deep = g->GetPointX(pt);    // 深层探测器 ADC (TGraph x 轴)
+    double shallow = g->GetPointY(pt);  // 浅层探测器 ADC (TGraph y 轴)
+    if (cut.cut->IsInside(deep, shallow)   // TCutG 筛选：在 ΔE-E 截断曲线内
+        && shallow > info->left            // left/right 筛选：浅层 ADC 在合理范围内
+        && shallow < info->right) {
+        gcali.AddPoint(shallow + info->offset, deep);
     }
 }
 ```
 
+双重筛选的意义：
+
+| 筛选方式 | 作用 | 如果没有会怎样 |
+|---------|------|---------------|
+| `TCutG::IsInside` | ΔE-E 二维形状筛选，排除不在截断曲线内的点 | 无法区分不同粒子，不同粒子的散点混在一起 |
+| `shallow > left && shallow < right` | 浅层能量一维范围筛选，确保数据点在拟合函数的有效区间内 | 数据点落入 PidFitFunc 的区间间隙（return 0），变成巨大 outlier 导致 chi2 飙升 |
+
+**这与 reference 程序的行为一致**：reference 中同样同时检查 `event.layer`, `event.charge`, `event.mass`（粒子身份）**和** `event.energy[] > left && event.energy[] < right`（能量范围）。
+
 命中的数据点被加入刻度用的 TGraph `gcali`，x 坐标加上层对 offset 用于后续 PidFitFunc 的区间路由。
 
-### 4.4 pid_info 的保留用途
+### 4.4 pid_info 的双重角色
 
-`pid_info` 表（[calibrate_t0.cpp](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/bin/calibrate_t0.cpp#L51-L61)）**不再用于数据筛选**，仅保留用于 PidFitFunc 的 x 区间路由（确定每个数据点属于哪个层对的哪种粒子，以选择正确的理论曲线）。
+`pid_info` 表（[calibrate_t0.cpp](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/bin/calibrate_t0.cpp#L51-L61)）在本版本中承担**两个角色**：
 
-### 4.5 各层对可选粒子
+| 角色 | 使用位置 | 作用 |
+|------|---------|------|
+| 散点筛选 | `main()` 中的 `gcali.AddPoint` 循环 | `left/right` 作为浅层 ADC 的额外约束，筛掉落在区间外的数据点 |
+| 区间路由 | `PidFitFunc::operator()` | 将 gcali 的 x 坐标路由到正确粒子的理论曲线 |
+
+两个角色共用同一组 `left/right/offset`，确保筛选条件和拟合路由完全一致。
+
+### 4.5 各层对可用粒子
 
 | 层对 | 可用粒子 | TCutG 文件 |
 |------|---------|-----------|
 | d1d2 | ⁴He | `d1d2_4He_stop.C` |
 | d2d3 | ⁴He, ⁷Be, ¹²C | `d2d3_4He_stop.C`, `d2d3_7Be_stop.C`, `d2d3_12C_stop.C` |
 | d3d4 | ⁴He, ⁷Be, ¹²C | `d3d4_4He_stop.C`, `d3d4_7Be_stop.C`, `d3d4_12C_stop.C` |
-| d4s | ⁴He, ⁷Be | `d4s_4He_stop.C`, `d4s_7Be_stop.C` |
+| d4s | ¹H, ⁴He, ⁷Be | `d4s_1H_stop.C`, `d4s_4He_stop.C`, `d4s_7Be_stop.C` |
 
-程序自动根据实际存在的 cut 文件加载对应粒子，不存在的粒子不会参与刻度。
+> **注**：d1d2 的 ⁶Li 暂不参与拟合（`pid_info` 中已注释）。引入后拟合崩溃，需待 TCutG 优化后重新启用。
 
 ---
 
@@ -415,15 +433,76 @@ shallow_pred = (ΔE − p0_d1) / p1_d1
 
 ```cpp
 const std::vector<ParticlePidInfo> pid_info {
-    {0, 2,  4,  3000.0,  10000.0,      0},   // d1d2: 4He
-    {1, 2,  4,  4000.0,   8000.0,  20000},   // d2d3: 4He
-    {1, 4,  7, 11500.0,  19000.0,  40000},   // d2d3: 7Be
-    {1, 6, 12, 23000.0,  45000.0,  70000},   // d2d3: 12C
-    // ...
+    {0, 2,  4,  2000.0, 11000.0,       0},  // d1d2: 4He  → 全局 x ∈ [    2000,    11000]
+    //{0, 3,  6,  4500.0, 15000.0,   13000},  // d1d2: 6Li（暂注释，待优化cut）
+    {1, 2,  4,  3900.0,  8000.0,   30000},  // d2d3: 4He  → 全局 x ∈ [   33900,    38000]
+    {1, 4,  7, 11500.0, 19000.0,   39000},  // d2d3: 7Be  → 全局 x ∈ [   50500,    58000]
+    {1, 6, 12, 22500.0, 46000.0,   59000},  // d2d3: 12C  → 全局 x ∈ [   81500,   105000]
+    {2, 2,  4,  3400.0,  7000.0,  106000},  // d3d4: 4He  → 全局 x ∈ [  109400,   113000]
+    {2, 4,  7,  9500.0, 19000.0,  114000},  // d3d4: 7Be  → 全局 x ∈ [  123500,   133000]
+    {2, 6, 12, 22000.0, 40000.0,  134000},  // d3d4: 12C  → 全局 x ∈ [  156000,   174000]
+    {3, 1,  1,  1000.0,  2300.0,  175000},  // d4s:  1H   → 全局 x ∈ [  176000,   177300]
+    {3, 2,  4,  4000.0, 10000.0,  179000},  // d4s:  4He  → 全局 x ∈ [  183000,   189000]
+    {3, 4,  7, 12000.0, 28000.0,  191000},  // d4s:  7Be  → 全局 x ∈ [  203000,   219000]
 };
 ```
 
 当 `x` 落入某个 `[left+offset, right+offset]` 区间时，PidFitFunc 自动选择对应的 `(layer, charge, mass)` 进行拟合计算。
+
+**offset 布局原则**：每个 (层对, 粒子) 组合分配一段独立的全局 x 区间，区间之间留有 ≥2000 ADC 的间隔（gap），确保各段互不重叠。所有 offset 单调递增。TF1 总范围 0–330000 覆盖所有区间。
+
+> **注**：d1d2 的 ⁶Li 目前被注释掉。经测试，引入 ⁶Li 后拟合完全崩溃（chi2 飙升 4 个数量级），即使 TCutG 不重叠且理论曲线准确也未能消除。根因尚在排查中，疑似与 ⁴He 和 ⁶Li 共享 d1/d2 参数时 Minuit 优化路径的数值不稳定性有关。待手动调整 cut 后重新启用。
+
+#### 5.4.7 ★ left/right 对理论曲线的截断效应
+
+**这是本程序最容易被误解的设计点。** `left/right` 不仅用于筛选数据点和路由拟合区间，还对 PidFitFunc 内部使用的理论曲线产生了**截断效应**。
+
+**拟合时（PidFitFunc）**：只使用理论曲线中落入 `[left+offset, right+offset]` 的一段。
+
+```
+PidFitFunc::operator() 的执行逻辑：
+  if (x 不在任何 [left+offset, right+offset] 内)
+      return 0.0;    ← 越界→残差 = (deep_ADC - 0)² = 极大！
+  // 在区间内，正常计算：
+  de = p0_shallow + p1_shallow × (x - offset);  → 浅层沉积能量
+  e  = calculator→Energy(layer, de);            → 深层剩余能量（理论）
+  return (e - p0_deep) / p1_deep;               → 预测深层 ADC
+```
+
+`DeltaEnergyCalculator::Energy(layer, de)` **内部使用的仍然是完整的理论曲线**，但调用入口 `de` 被 `left/right` 限制在了浅层 ADC 对应的能量范围内，因此实际上只查表了其中一段。
+
+**TH2D 展示时（GenerateTheoryCurve）**：绘制完整的理论曲线，不经过任何截断。
+
+```
+                 完整 de-e 理论曲线
+                 ╱                ╲
+                ╱                  ╲
+       ΔE      ╱                    ╲                ← TH2D 绘制整条红线
+      (浅层)  ╱                      ╲
+             ╱                        ╲
+            ╱    ┌──────────────┐      ╲
+           ╱     │ left ~ right │       ╲              ← PidFitFunc 只取这一段
+          ╱      │ PidFitFunc   │        ╲
+         ╱       │ 拟合用区间    │         ╲
+        ──────────────────────────────────
+                 E (深层能量)
+```
+
+**后果对比**：
+
+| | PidFitFunc（拟合） | TH2D 理论曲线（展示） |
+|---|---|---|
+| 曲线范围 | 被 `left/right` 截断 | 完整物理曲线 |
+| 越界行为 | return 0 → 巨大残差 → 拟合失败 | 不存在越界 |
+| 数据一致性 | 需要 left/right 覆盖所有数据点 | 总是覆盖整个图的能量范围 |
+
+**关键约束**：`left/right` 必须**完整覆盖**所有通过 TCutG 筛选的数据点的浅层 ADC 范围。如果出现过小的 `left/right`（数据点落在区间外），`PidFitFunc` 返回 0，这些点会变成巨大的 outlier，导致 chi2 飙升、Minuit 无法收敛。
+
+**合理设置 left/right 的原则**：
+1. 对所有 TCutG 筛选后的数据点，统计其浅层 ADC 的最小值和最大值
+2. `left` ≤ 最小浅层 ADC，`right` ≥ 最大浅层 ADC（留少许余量）
+3. 相邻粒子的区间之间留 gap ≥ 2000 ADC，避免重叠
+4. 同一层对的不同粒子使用相同的 p0/p1，共同约束该层对的刻度系数
 
 ---
 
@@ -438,7 +517,7 @@ const std::vector<ParticlePidInfo> pid_info {
 4. 在 estimate/ 目录中查找 pre_calibration 文件
 5. 读取 g_d1d2/g_d2d3/g_d3d4/g_d4s 四个 TGraph
 6. 扫描 src/brill/Cut/ 目录，加载所有符合命名格式的 TCutG
-7. 遍历每个 cut，对 TGraph 逐点执行 IsInside 筛选，命中点加入 gcali
+7. 遍历每个 cut，对 TGraph 逐点执行 **TCutG + left/right 双重筛选**，命中点加入 gcali
 8. 从加载的 cut 中自动收集粒子列表，构建 PidFitFunc
 9. 初始化刻度参数
 10. 将 TGraph 与 TF1 进行全局拟合
@@ -449,16 +528,20 @@ const std::vector<ParticlePidInfo> pid_info {
 ### 6.2 初始刻度参数
 
 ```cpp
-double initial_calibration_parameters[12] = {
+double initial_calibration_parameters[10] = {
     0.0, 0.002,   // t0d1: p0=0, p1=0.002
     0.0, 0.006,   // t0d2: p0=0, p1=0.006
     0.0, 0.006,   // t0d3: p0=0, p1=0.006
     0.0, 0.003,   // t0d4: p0=0, p1=0.003
-    0.0, 0.3      // t0s:  p0=0, p1=0.3
+    0.0, 0.003    // t0s:  p0=0, p1=0.003
 };
 ```
 
-初始 p1 值的物理含义：越厚的探测器，单位 ADC 对应的能量越大，p1 值越大。d1（68 μm）最薄，p1=0.002 最小；d2/d3（~1000 μm）较厚，p1=0.006；t0s（1500 μm）最厚，p1=0.3 最大。
+所有参数均设置拟合边界：
+- **p0（偏移量）**：`[0.0, 100.0]`（非负约束，避免限制拟合）  
+- **p1（增益系数）**：`[0.0, 1.0]`（物理约束：能量/ADC 必须为正）
+
+使用 `"R S"` 选项（TGraph 范围 + Strategy 2）进行拟合。
 
 ---
 

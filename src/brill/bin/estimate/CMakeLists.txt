@@ -66,6 +66,16 @@ target_link_libraries(
 	ROOT::Tree
 )
 
+add_executable(compare_calibration compare_calibration.cpp)
+target_link_libraries(
+	compare_calibration
+	PRIVATE
+	config
+	ROOT::Graf
+	ROOT::Gpad
+	ROOT::Hist
+)
+
 add_executable(pre_calibration pre_calibration.cpp)
 target_link_libraries(
 	pre_calibration

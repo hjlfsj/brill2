@@ -54,7 +54,11 @@ struct TrackConfig {
 };
 
 struct PreCalibrationConfig {
-	TrackWindowConfig window = {-2.0, 2.0};
+	double max_distance_sq = 4.0;
+};
+
+struct CalibrationConfig {
+	std::vector<int> runs;
 };
 
 struct StraightParticleConfig {
@@ -116,6 +120,7 @@ struct AppConfig {
 	NormalizeConfig normalize;
 	TrackConfig track;
 	PreCalibrationConfig pre_calibration;
+	CalibrationConfig calibration;
 	IdentifyConfig identify;
 	PpacConfig ppac;
 	std::map<std::string, SquareDetectorConfig> detectors;

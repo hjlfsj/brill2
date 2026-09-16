@@ -27,41 +27,37 @@ bool InTrackWindow(
 	int left_index,
 	const brill::DssdMatchEvent &right,
 	int right_index,
-	const brill::TrackWindowConfig &window
+	double max_dist_sq
 ) {
 	double dx = right.x[right_index] - left.x[left_index];
-	double dy = right.y[right_index] - left.y[left_index];
-	return
-		dx >= window.min
-		&& dx <= window.max
-		&& dy >= window.min
-		&& dy <= window.max;
+	double dy = right.y[right_index] - left.y[right_index];
+	return dx * dx + dy * dy <= max_dist_sq;
 }
 
 void FillPair(
 	const brill::DssdMatchEvent &left,
 	const brill::DssdMatchEvent &right,
-	const brill::TrackWindowConfig &window,
+	double max_dist_sq,
 	TH2F &histogram,
 	TGraph &graph
 ) {
 	if (left.num < 1 || right.num < 1) return;
-	if (!InTrackWindow(left, 0, right, 0, window)) return;
+	if (!InTrackWindow(left, 0, right, 0, max_dist_sq)) return;
 	histogram.Fill(right.energy[0], left.energy[0]);
 	graph.SetPoint(graph.GetN(), right.energy[0], left.energy[0]);
 }
 
 void FillSilicon(
-	const brill::DssdMatchEvent &d1,
-	const brill::DssdMatchEvent &d2,
 	const brill::DssdMatchEvent &d3,
 	const brill::DssdMatchEvent &d4,
 	const brill::SiliconEvent &silicon,
+	double max_dist_sq,
 	TH2F &histogram,
 	TGraph &graph
 ) {
 	if (!silicon.valid) return;
-	if (d1.num != 1 || d2.num != 1 || d3.num != 1 || d4.num != 1) return;
+	if (d3.num != 1 || d4.num != 1) return;
+	if (!InTrackWindow(d3, 0, d4, 0, max_dist_sq)) return;
 	histogram.Fill(silicon.energy, d4.energy[0]);
 	graph.SetPoint(graph.GetN(), silicon.energy, d4.energy[0]);
 }
@@ -199,6 +195,8 @@ TH2F d4s_pid("d4s", "D4-S PID", 5000, 0.0, 65535.0, 5000, 0.0, 65535.0);
 	long long last_percentage = -1;
 	std::printf("Pre-calibration   0%%");
 	std::fflush(stdout);
+	const double max_dist_sq = config.pre_calibration.max_distance_sq;
+
 	for (long long entry = 0; entry < total; ++entry) {
 		long long percentage = total > 0 ? entry * 100ll / total : 100ll;
 		if (percentage > last_percentage) {
@@ -207,10 +205,10 @@ TH2F d4s_pid("d4s", "D4-S PID", 5000, 0.0, 65535.0, 5000, 0.0, 65535.0);
 			std::fflush(stdout);
 		}
 		chain1.GetEntry(entry);
-		FillPair(event1, event2, config.pre_calibration.window, d1d2_pid, g_d1d2);
-		FillPair(event2, event3, config.pre_calibration.window, d2d3_pid, g_d2d3);
-		FillPair(event3, event4, config.pre_calibration.window, d3d4_pid, g_d3d4);
-		FillSilicon(event1, event2, event3, event4, event_s, d4s_pid, g_d4s);
+		FillPair(event1, event2, max_dist_sq, d1d2_pid, g_d1d2);
+		FillPair(event2, event3, max_dist_sq, d2d3_pid, g_d2d3);
+		FillPair(event3, event4, max_dist_sq, d3d4_pid, g_d3d4);
+		FillSilicon(event3, event4, event_s, max_dist_sq, d4s_pid, g_d4s);
 	}
 	std::printf("\b\b\b\b100%%\n");
 

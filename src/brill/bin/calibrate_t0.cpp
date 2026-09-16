@@ -50,15 +50,17 @@ struct ParticlePidInfo {
 };
 
 const std::vector<ParticlePidInfo> pid_info {
-	{0, 2,  4, 3000.0,  10000.0, 0},
-	{1, 2,  4, 4000.0,   8000.0, 20000},
-	{1, 4,  7, 11500.0, 19000.0, 40000},
-	{1, 6, 12, 23000.0, 45000.0, 70000},
-	{2, 2,  4, 3600.0,   6500.0, 130000},
-	{2, 4,  7, 9800.0,  19000.0, 150000},
-	{2, 6, 12, 23000.0, 39000.0, 180000},
-	{3, 2,  4, 4300.0,   8800.0, 230000},
-	{3, 4,  7, 12000.0, 23000.0, 260000},
+	{0, 2,  4,  2000.0, 11000.0,   	   0},  // d1d2 4He
+	// {0, 3,  6,  4500.0, 15000.0,   12000+1000},  // d1d2 6Li
+	{1, 2,  4,  3900.0,  8000.0,   29000+1000},  // d2d3 4He
+	{1, 4,  7, 11500.0, 19000.0,   38000+1000},  // d2d3 7Be
+	{1, 6, 12, 22500.0, 46000.0,   58000+1000},  // d2d3 12C
+	{2, 2,  4,  3400.0,  7000.0,  105000+1000},  // d3d4 4He
+	{2, 4,  7,  9500.0, 19000.0,  113000+1000},  // d3d4 7Be
+	{2, 6, 12, 22000.0, 40000.0,  133000+1000},  // d3d4 12C
+	{3, 1,  1,  1000.0,  2300.0,  174000+1000},  // d4s  1H
+	{3, 2,  4,  4000.0, 10000.0,  178000+1000},  // d4s  4He
+	{3, 4,  7, 12000.0, 28000.0,  190000+1000},  // d4s  7Be
 };
 
 class PidFitFunc {
@@ -112,7 +114,9 @@ struct ParticleIdentity {
 
 ParticleIdentity ParseParticleName(const std::string &name) {
 	static const std::map<std::string, ParticleIdentity> kParticleMap = {
+		{"1H",  {1, 1}},
 		{"4He", {2, 4}},
+		{"6Li", {3, 6}},
 		{"7Be", {4, 7}},
 		{"12C", {6, 12}},
 	};
@@ -217,16 +221,14 @@ int LoadCuts(
 	return cuts.empty() ? -1 : 0;
 }
 
-double GetPidOffset(int layer, int charge, int mass) {
+const ParticlePidInfo *GetPidInfo(int layer, int charge, int mass) {
 	for (const auto &info : pid_info) {
 		if (info.layer == layer && info.charge == charge
 			&& info.mass == mass) {
-			return info.offset;
+			return &info;
 		}
 	}
-	std::cerr << "Error: No pid_info offset for (layer=" << layer
-		<< ", Z=" << charge << ", A=" << mass << ").\n";
-	return -1.0;
+	return nullptr;
 }
 
 const std::vector<ParticleIdentity> kCommonParticles = {
@@ -375,9 +377,12 @@ int main(int argc, char **argv) {
 	std::set<std::pair<int, int>> projectile_set;
 	for (const auto &cut : cuts) {
 		int layer = cut.pair->layer;
-		double pid_offset = GetPidOffset(
+		const ParticlePidInfo *info = GetPidInfo(
 			layer, cut.particle.charge, cut.particle.mass);
-		if (pid_offset < 0.0) {
+		if (!info) {
+			std::cerr << "Error: No pid_info for (layer=" << layer
+				<< ", Z=" << cut.particle.charge
+				<< ", A=" << cut.particle.mass << ").\n";
 			continue;
 		}
 
@@ -386,8 +391,10 @@ int main(int argc, char **argv) {
 		for (int pt = 0; pt < g->GetN(); ++pt) {
 			double deep = g->GetPointX(pt);
 			double shallow = g->GetPointY(pt);
-			if (cut.cut->IsInside(deep, shallow)) {
-				gcali.AddPoint(shallow + pid_offset, deep);
+			if (cut.cut->IsInside(deep, shallow)
+				&& shallow > info->left
+				&& shallow < info->right) {
+				gcali.AddPoint(shallow + info->offset, deep);
 				++hit_count;
 			}
 		}
@@ -421,7 +428,7 @@ int main(int argc, char **argv) {
 		fcali.SetParameter(i, initial_calibration_parameters[i]);
 	}
 	for (int i = 0; i < 10; ++i) {
-		fcali.SetParLimits(i, -10.0, 10.0);
+		fcali.SetParLimits(i, 0.0, (i % 2 == 0) ? 10.0 : 1.0);
 	}
 	std::cout << "Fitting with \"R S\" option...\n";
 	gcali.Fit(&fcali, "R S");

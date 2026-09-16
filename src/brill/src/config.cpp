@@ -146,7 +146,22 @@ void LoadPreCalibration(
 	const toml::table &table,
 	PreCalibrationConfig &pre_calibration
 ) {
-	LoadTrackWindow(table, "window", pre_calibration.window);
+	if (auto val = table["max_distance_sq"].value<double>()) {
+		pre_calibration.max_distance_sq = *val;
+	}
+}
+
+void LoadCalibration(
+	const toml::table &table,
+	CalibrationConfig &calibration
+) {
+	if (const auto *run_array = table["runs"].as_array()) {
+		for (const auto &run_item : *run_array) {
+			if (auto val = run_item.value<int>()) {
+				calibration.runs.push_back(*val);
+			}
+		}
+	}
 }
 
 void LoadT0(const toml::table &table, T0Config &t0) {
@@ -316,6 +331,9 @@ int LoadConfig(const std::string &path, AppConfig &config) {
 		}
 		if (const auto *pre_calibration = table["pre_calibration"].as_table()) {
 			LoadPreCalibration(*pre_calibration, config.pre_calibration);
+		}
+		if (const auto *calibration = table["calibration"].as_table()) {
+			LoadCalibration(*calibration, config.calibration);
 		}
 		if (const auto *identify = table["identify"].as_table()) {
 			LoadIdentify(*identify, config.identify);

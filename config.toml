@@ -246,6 +246,10 @@ norm = [0, 31]
 ref_energy = [500.0, 60000.0]
 norm_energy = [500.0, 60000.0]
 
+
+[calibration]
+runs = [57, 77, 97, 117, 137]
+
 [track]
 d2d1_window = [-4.0, 2.0]
 d3d2_window = [-4.0, 4.0]
