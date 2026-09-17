@@ -65,10 +65,16 @@ TGraph 中的数据点由 `pre_calibration` 程序根据以下条件筛选：
 
 | 层对 | 数据点来源 | track 条件 |
 |------|-----------|-----------|
-| d1d2 | 取各自探测器的第一个 hit | `|dx| < 2mm, |dy| < 2mm` |
-| d2d3 | 取各自探测器的第一个 hit | `|dx| < 2mm, |dy| < 2mm` |
-| d3d4 | 取各自探测器的第一个 hit | `|dx| < 2mm, |dy| < 2mm` |
-| d4s | 取 d4 第一个 hit + s 能量 | `d1.num==d2.num==d3.num==d4.num==1 && s.valid` |
+| d1d2 | 取各自探测器的第一个 hit | `dx² + dy² ≤ 4 mm²`（圆形窗口） |
+| d2d3 | 取各自探测器的第一个 hit | `dx² + dy² ≤ 4 mm²`（圆形窗口） |
+| d3d4 | 取各自探测器的第一个 hit | `dx² + dy² ≤ 4 mm²`（圆形窗口） |
+| d4s | 取 d4 第一个 hit + s 能量 | `d3.num==d4.num==1 && dx²+dy² ≤ 4 mm² && s.valid` |
+
+> **距离阈值**由 `config.toml` 中 `[pre_calibration]` 段的 `max_distance_sq` 控制，默认值 4.0 mm²。
+
+这个改了什么：
+- **矩形 → 圆形**：`|dx|<2 && |dy|<2` 改为 `dx²+dy² ≤ 4`，物理上更合理（圆形区域内接正方形会多选 27% 的对角区域事件）
+- **d4s 的 hit 条件**：从 `d1.num==d2.num==d3.num==d4.num==1`（全局 4-hit 一致）改为 `d3.num==d4.num==1`（仅约束相邻 d3-d4） |
 
 ### 3.3 探测器配置
 

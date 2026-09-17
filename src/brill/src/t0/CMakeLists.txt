@@ -18,3 +18,25 @@ target_link_libraries(
 	ROOT::RIO
 	ROOT::Tree
 )
+
+add_library(
+	t0_calibrate_utils
+	calibrate_t0_utils.cpp
+)
+target_include_directories(
+	t0_calibrate_utils
+	PUBLIC
+	${PROJECT_SOURCE_DIR}
+	${ROOT_INCLUDE_DIRS}
+)
+target_link_libraries(
+	t0_calibrate_utils
+	PUBLIC
+	config
+	energy_calculator
+	ROOT::Core
+	ROOT::RIO
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gpad
+)
