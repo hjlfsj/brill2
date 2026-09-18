@@ -2,7 +2,13 @@
 
 ## 1. 概述
 
-`calibrate_t0.cpp` 是 brill2 数据分析框架中用于 T0 探测器系统能量刻度（ADC → MeV）的核心程序，可执行文件名为 `calibrate_t0`。
+brill2 数据分析框架提供三个 T0 探测器能量刻度程序：
+
+| 程序 | 可执行文件 | 状态 |
+|------|-----------|------|
+| **calibrate_t0_v1** | `calibrate_t0_v1` | **标准程序** |
+| calibrate_t0_v2 | `calibrate_t0_v2` | 实验性程序 |
+| calibrate_t0 | `calibrate_t0` | 原始程序，已弃用 |
 
 ### 物理目标
 
@@ -12,18 +18,36 @@ T0 探测器系统由 5 层硅探测器（t0d1/t0d2/t0d3/t0d4/t0s）组成，每
 E_calibrated[MeV] = p0 + p1 × E_raw[ADC]
 ```
 
-### 刻度策略
+### 刻度策略总览
 
-本程序采用**基于 TCutG + 理论曲线拟合**方法：
+所有版本均采用**基于 TCutG + 理论曲线拟合**方法：
 
 1. 从 `pre_calibration` 程序生成的 TGraph 中读取各层对的原始 ADC 散点（`g_d1d2`、`g_d2d3`、`g_d3d4`、`g_d4s`）
 2. 通过 `src/brill/Cut/` 目录下的 TCutG 截断文件筛选出目标粒子
 3. 利用 catima 库计算粒子在多层硅探测器中的理论能损，建立理论 ΔE-E 曲线
-4. 对实验数据点进行全局拟合以确定刻度系数
+4. 对实验数据点进行拟合以确定刻度系数
+
+三个版本的区别在于**拟合策略**：原始版本一次性全局拟合 10 个参数；v1 将 d1 分离为两阶段（标准策略）；v2 采用四段式从深层到浅层逐步固定参数（实验性策略）。
 
 ---
 
-## 2. 命令行参数
+## 2. calibrate_t0_v1（标准程序）
+
+### 2.1 刻度策略：两阶段拟合
+
+由于 d1 是 68 μm 薄探测器，其厚度不均匀性导致 d1-d2 全局拟合效果差。v1 将 d1-d2 分离出来独立处理：
+
+```
+Stage 1: d2-d3, d3-d4, d4-s1  联合拟合（8 参数: d2,d3,d4,s1）
+                                      ↓ 固定 d2
+Stage 2: d1-d2                  独立拟合（2 参数: d1，d2 固定）
+```
+
+**设计动机**：
+- d2/d3/d4/s1 厚度（~1000 μm, ~1500 μm）相对均匀，联合拟合可互相约束获得稳定参数
+- d1 厚度（68 μm）均匀性差，在 Stage 2 中用已固定的 d2 参数单独拟合，避免 d1 的不确定性污染其他层
+
+### 2.2 命令行参数
 
 | 参数 | 简写 | 类型 | 说明 |
 |------|------|------|------|
@@ -32,19 +56,203 @@ E_calibrated[MeV] = p0 + p1 × E_raw[ADC]
 | `--trigger` | `-t` | string | 触发器类型 |
 | `--config` | `-c` | string | 配置文件路径，默认 `config.toml` |
 
-**注意**：不再需要 `-e`（end-run）参数，程序自动在 `estimate/` 目录中查找文件名以 `pre_calibration_{trigger}{run:04d}_` 开头的 ROOT 文件，从中读取 TGraph 数据点。
-
-### 使用示例
-
+使用示例：
 ```bash
-./calibrate_t0 -r 57 -t t1
+./calibrate_t0_v1 -r 57 -t t1
 ```
+
+### 2.3 拟合参数初始值与限制
+
+#### Stage 1（d2-d3 + d3-d4 + d4-s1 联合拟合，8 参数）
+
+| 参数索引 | 对应探测器 | 初始值 | p0 限制 | p1 限制 |
+|---------|-----------|--------|---------|---------|
+| par[0], par[1] | t0d2 | (0.0, 0.006) | [-1.0, 1.0] | [0.0, 1.0] |
+| par[2], par[3] | t0d3 | (0.0, 0.006) | [-1.0, 1.0] | [0.0, 1.0] |
+| par[4], par[5] | t0d4 | (0.0, 0.003) | [-1.0, 1.0] | [0.0, 1.0] |
+| par[6], par[7] | t0s | (0.0, 0.003) | [-1.0, 1.0] | [0.0, 1.0] |
+
+TF1 范围：`[25000, 220000]`（跳过 d1-d2 的 0–25000 区间。layer=1,2,3 的 offset 起点分别是 26000, 102000, 180000）
+
+#### Stage 2（d1-d2，d2 固定，2 参数）
+
+| 参数索引 | 对应探测器 | 初始值 | p0 限制 | p1 限制 |
+|---------|-----------|--------|---------|---------|
+| par[0], par[1] | t0d1 | (0.0, 0.002) | [-1.0, 1.0] | [0.0, 1.0] |
+
+TF1 范围：`[0, 25000]`（仅 d1-d2 对应区间）。固定参数 d2_p0, d2_p1 取自 Stage 1 结果。
+
+### 2.4 拟合函数类
+
+| 类名 | 用途 | 参数结构 |
+|------|------|---------|
+| `PidFitFuncStage1` | Stage 1：联合拟合 d2/d3/d4/s1 | 8 参数共享，`info.layer == 0` 跳过 |
+| `PidFitFuncStage2` | Stage 2：固定 d2，拟合 d1 | 2 参数 + 固定 d2_p0/d2_p1 |
+
+详细的拟合函数数学推导见第 6.4 节。
+
+### 2.5 参数跨层对共享（全局拟合）
+
+v1 的 Stage 1 中每个探测器（除端点外）同时出现在两个相邻层对中，使用同一组参数：
+
+```
+d2d3 层对: par[0],par[1] (d2) + par[2],par[3] (d3)
+d3d4 层对: par[2],par[3] (d3) + par[4],par[5] (d4)
+d4s  层对: par[4],par[5] (d4) + par[6],par[7] (t0s)
+```
+
+d2/d3/d4 的刻度系数同时受两个层对约束，属于**全局拟合**。
+
+### 2.6 最终参数组装
+
+```
+final_parameters[10] = {
+    stage2_pars[0], stage2_pars[1],  // d1 ← Stage 2
+    stage1_pars[0], stage1_pars[1],  // d2 ← Stage 1
+    stage1_pars[2], stage1_pars[3],  // d3 ← Stage 1
+    stage1_pars[4], stage1_pars[5],  // d4 ← Stage 1
+    stage1_pars[6], stage1_pars[7]   // s1 ← Stage 1
+};
+```
+
+### 2.7 权重缩放配置
+
+`kT0PidInfo` 数组第 7 个字段 `weight` 控制该 PID 在拟合中的缩放倍率。原理：
+
+```
+FillGcaliForLayers:   gcali.y  = weight × deep_ADC        （数据缩放）
+PidFitFunc::operator: f(x)     = weight × prediction      （函数缩放）
+
+χ² 贡献 = Σ(weight × y − weight × f)² = weight² × Σ(y − f)²
+      → 有效权重 = weight²
+```
+
+即 `weight=2.0` 对应 4× 有效权重，`weight=5.0` 对应 25× 有效权重。
+
+**当前配置**（[calibrate_t0_utils.cpp](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/src/t0/calibrate_t0_utils.cpp#L39-L53)）：
+
+| 层对 | 粒子 | weight | 有效权重 (weight²) |
+|------|------|--------|-------------------|
+| d1d2 | ⁴He | 1.0 | 1× |
+| d1d2 | ⁶Li | 1.0 | 1× |
+| d2d3 | ⁴He | **5.0** | **25×** |
+| d2d3 | ⁷Be | 2.0 | 4× |
+| d2d3 | ¹²C | 1.0 | 1× |
+| d3d4 | ¹H | **16.0** | **256×** |
+| d3d4 | ⁴He | 4.0 | 16× |
+| d3d4 | ⁷Be | 2.0 | 4× |
+| d3d4 | ¹²C | 1.0 | 1× |
+| d4s | ¹H | **8.0** | **64×** |
+| d4s | ⁴He | 2.0 | 4× |
+| d4s | ⁶Li | 1.0 | 1× |
+
+**应用范围**：Stage 1（FillGcaliForLayers + PidFitFuncStage1）和 Stage 2（FillGcaliForLayers + PidFitFuncStage2）均已完整支持。
+
+### 2.8 输出
+
+详见第 9 节。
 
 ---
 
-## 3. 数据来源
+## 3. calibrate_t0_v2（实验性程序）
 
-### 3.1 输入数据：pre_calibration TGraph
+### 3.1 刻度策略：四段式逐步拟合
+
+由于 d3 厚度可能存在测量误差（d3-d4 是拟合最差的层对），v2 采用从深层到浅层逐步固定参数的单向链式拟合：
+
+```
+Stage 1: d3-d4  BothFree（4 参数: d3, d4）
+                    ↓ 固定 d4
+Stage 2: d4-s1   FixLower（2 参数: s1，d4 固定）
+                    ↓ 固定 d3（来自 Stage 1）
+Stage 3: d2-d3   FixUpper（2 参数: d2，d3 固定）
+                    ↓ 固定 d2
+Stage 4: d1-d2   FixUpper（2 参数: d1，d2 固定）
+```
+
+**设计动机**：
+- 先通过 d3-d4 联合拟合确定 d3 和 d4，让两者互相约束（而非让 d4 与 s1 联合拟合）
+- 再用已固定的 d4 确定 s1，避免 s1 的不确定性反向传递到 d4
+- 逐级向浅层推进，每一步只拟合一层
+
+### 3.2 拟合函数类
+
+v2 需要三个拟合类来处理"固定浅层"和"固定深层"两种不同情况：
+
+| 类名 | 用途 | 固定/拟合关系 |
+|------|------|-------------|
+| `PidFitFuncBothFree` | Stage 1：同时拟合一对探测器的两层 | 无固定，4 参数 |
+| `PidFitFuncFixLower` | Stage 2：固定浅层（d4），拟合深层（s1） | x=浅层ADC → Energy(layer, de) → (残余-p0_deep)/p1_deep |
+| `PidFitFuncFixUpper` | Stage 3/4：固定深层（d3/d2），拟合浅层（d2/d1） | x=浅层ADC → Energy(layer, de) → (残余-p0_deep_fixed)/p1_deep_fixed |
+
+`PidFitFuncFixLower` 和 `PidFitFuncFixUpper` 的核心区别在于哪一层的参数固定。对于 d4-s1，gcali 的 x 轴是 d4（浅层）ADC，拟合的是 s1（深层）——"固定浅层"，需要 `FixLower`。对于 d2-d3 和 d1-d2，gcali 的 x 轴是浅层 ADC，拟合的是浅层，"固定深层"，需要 `FixUpper`。
+
+### 3.3 各阶段参数限制
+
+| 阶段 | 层对 | 拟合层 | TF1 范围 | p0 限制 | p1 限制 |
+|------|------|--------|----------|---------|---------|
+| Stage 1 | d3-d4 | d3 | [100000, 180000] | [-1.0, 1.0] | [0.006, 0.008] |
+| | | d4 | | [-1.0, 1.0] | [0.004, 0.006] |
+| Stage 2 | d4-s1 | s1 | [180000, 220000] | [-1.0, 1.0] | [0.0, 0.1] |
+| Stage 3 | d2-d3 | d2 | [25000, 102000] | [-1.0, 1.0] | [0.0, 0.1] |
+| Stage 4 | d1-d2 | d1 | [0, 25000] | [-1.0, 1.0] | [0.0, 0.1] |
+
+### 3.4 与 v1 的关键区别
+
+| | v1 | v2 |
+|---|---|---|
+| 迭代方式 | d2-d4-s1 联合 + d1 独立 | d3-d4 → d4-s1 → d2-d3 → d1-d2 链式 |
+| d3/d4 关系 | 与 d2、s1 联合同步约束 | d3-d4 先拟合，d4 固定后再拟合 s1 |
+| 依赖方向 | Stage 1 中多探测器互相约束 | 单向链：d4→s1→d3→d2→d1 |
+| d3/d4 限制 | 与其他层统一 [0,1] | 更严格独立限制（d3 p1 [0.006,0.008], d4 p1 [0.004,0.006]） |
+
+---
+
+## 4. calibrate_t0（原始程序，已弃用）
+
+### 4.1 刻度策略：全局联合拟合
+
+原始程序将全部 10 个参数（d1–s1）一次性全局拟合：
+
+```
+d1-d2, d2-d3, d3-d4, d4-s1  全局联合拟合（10 参数）
+```
+
+### 4.2 全局拟合参数表（10 参数）
+
+| 参数索引 | 对应探测器 | 含义 |
+|---------|-----------|------|
+| par[0], par[1] | t0d1 | p0, p1 — d1 刻度系数 |
+| par[2], par[3] | t0d2 | p0, p1 — d2 刻度系数 |
+| par[4], par[5] | t0d3 | p0, p1 — d3 刻度系数 |
+| par[6], par[7] | t0d4 | p0, p1 — d4 刻度系数 |
+| par[8], par[9] | t0s | p0, p1 — t0s 刻度系数 |
+
+### 4.3 初始刻度参数与限制
+
+```cpp
+double initial_calibration_parameters[10] = {
+    0.0, 0.002,   // t0d1: p0=0, p1=0.002
+    0.0, 0.006,   // t0d2: p0=0, p1=0.006
+    0.0, 0.006,   // t0d3: p0=0, p1=0.006
+    0.0, 0.003,   // t0d4: p0=0, p1=0.003
+    0.0, 0.003    // t0s:  p0=0, p1=0.003
+};
+```
+
+参数限制：p0 [0.0, 100.0]，p1 [0.0, 1.0]。
+
+### 4.4 存在的问题
+
+- d1 厚度（68 μm）不均匀导致 d1 参数不稳定，影响 d2/d3/d4/s1 的拟合
+- 10 参数全局拟合自由度大，收敛性差
+- 因此被 v1（标准程序）取代
+
+---
+
+## 5. 输入数据
+
+### 5.1 输入数据：pre_calibration TGraph
 
 程序读取 `estimate/pre_calibration_{trigger}{run}_*.root` 文件（如 `pre_calibration_t1057_0107.root`），该文件由 `pre_calibration` 程序生成。
 
@@ -59,7 +267,7 @@ E_calibrated[MeV] = p0 + p1 × E_raw[ADC]
 
 每个 TGraph 点的坐标惯例与 TCutG::IsInside(x,y) 一致，即 **x=深层探测器能量，y=浅层探测器能量**。
 
-### 3.2 pre_calibration 程序的筛选条件
+### 5.2 pre_calibration 程序的筛选条件
 
 TGraph 中的数据点由 `pre_calibration` 程序根据以下条件筛选：
 
@@ -72,11 +280,11 @@ TGraph 中的数据点由 `pre_calibration` 程序根据以下条件筛选：
 
 > **距离阈值**由 `config.toml` 中 `[pre_calibration]` 段的 `max_distance_sq` 控制，默认值 4.0 mm²。
 
-这个改了什么：
+此筛选条件做了以下改进：
 - **矩形 → 圆形**：`|dx|<2 && |dy|<2` 改为 `dx²+dy² ≤ 4`，物理上更合理（圆形区域内接正方形会多选 27% 的对角区域事件）
-- **d4s 的 hit 条件**：从 `d1.num==d2.num==d3.num==d4.num==1`（全局 4-hit 一致）改为 `d3.num==d4.num==1`（仅约束相邻 d3-d4） |
+- **d4s 的 hit 条件**：从 `d1.num==d2.num==d3.num==d4.num==1`（全局 4-hit 一致）改为 `d3.num==d4.num==1`（仅约束相邻 d3-d4）
 
-### 3.3 探测器配置
+### 5.3 探测器配置
 
 从 `config.toml` 读取探测器厚度参数（[config.h](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/include/config.h#L83-L85)）：
 
@@ -102,9 +310,9 @@ thickness_um = 1500.0
 
 ---
 
-## 4. PID 截断（Cut）来源
+## 6. PID 截断（Cut）来源
 
-### 4.1 TCutG 截断文件
+### 6.1 TCutG 截断文件
 
 在本版本中，PID 截断不再硬编码在程序中，而是通过独立的 TCutG 文件定义。
 
@@ -137,17 +345,17 @@ thickness_um = 1500.0
 }
 ```
 
-### 4.2 TCutG 加载机制
+### 6.2 TCutG 加载机制
 
-程序启动时，`LoadCuts()` 函数（[calibrate_t0.cpp](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/bin/calibrate_t0.cpp#L170-L214)）自动扫描 `src/brill/Cut/` 目录：
+程序启动时，`LoadCuts()` 函数（[calibrate_t0_utils.cpp](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/src/t0/calibrate_t0_utils.cpp#L66-L118)）自动扫描 `src/brill/Cut/` 目录：
 
-1. 对每个层对（`d1d2`、`d2d3`、`d3d4`、`d4s`），匹配以层对名开头的 `.C` 文件
+1. 对每个层对（`d1d2`、`d2d3`、`d3d4`、`d4s`），匹配以层对名开头的 `_stop.C` 文件
 2. 从文件名中解析粒子名称（如 `d2d3_7Be_stop.C` → 粒子 `7Be`）
 3. 解析粒子名为 (Z, A)（`4He`→{2,4}，`7Be`→{4,7}，`12C`→{6,12}）
 4. 通过 `gROOT->ProcessLine(".x 文件名")` 执行宏，加载 TCutG
 5. 通过 `gROOT->FindObject("d2d3_7Be_stop")` 获取 TCutG 指针并 Clone 保存
 
-### 4.3 截断筛选逻辑（双重筛选：TCutG + left/right）
+### 6.3 截断筛选逻辑（双重筛选：TCutG + left/right）
 
 对每个加载的 cut，遍历对应层对的 TGraph 中所有数据点，同时使用 TCutG 和 pid_info 的 left/right 范围进行双重筛选：
 
@@ -174,9 +382,9 @@ for (int pt = 0; pt < g->GetN(); ++pt) {
 
 命中的数据点被加入刻度用的 TGraph `gcali`，x 坐标加上层对 offset 用于后续 PidFitFunc 的区间路由。
 
-### 4.4 pid_info 的双重角色
+### 6.4 pid_info 的双重角色
 
-`pid_info` 表（[calibrate_t0.cpp](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/bin/calibrate_t0.cpp#L51-L61)）在本版本中承担**两个角色**：
+`pid_info` 表在本版本中承担**两个角色**：
 
 | 角色 | 使用位置 | 作用 |
 |------|---------|------|
@@ -185,22 +393,22 @@ for (int pt = 0; pt < g->GetN(); ++pt) {
 
 两个角色共用同一组 `left/right/offset`，确保筛选条件和拟合路由完全一致。
 
-### 4.5 各层对可用粒子
+### 6.5 各层对可用粒子
 
 | 层对 | 可用粒子 | TCutG 文件 |
 |------|---------|-----------|
 | d1d2 | ⁴He | `d1d2_4He_stop.C` |
 | d2d3 | ⁴He, ⁷Be, ¹²C | `d2d3_4He_stop.C`, `d2d3_7Be_stop.C`, `d2d3_12C_stop.C` |
 | d3d4 | ⁴He, ⁷Be, ¹²C | `d3d4_4He_stop.C`, `d3d4_7Be_stop.C`, `d3d4_12C_stop.C` |
-| d4s | ¹H, ⁴He, ⁷Be | `d4s_1H_stop.C`, `d4s_4He_stop.C`, `d4s_7Be_stop.C` |
+| d4s | ¹H, ⁴He, ⁶Li | `d4s_1H_stop.C`, `d4s_4He_stop.C`, `d4s_6Li_stop.C` |
 
 > **注**：d1d2 的 ⁶Li 暂不参与拟合（`pid_info` 中已注释）。引入后拟合崩溃，需待 TCutG 优化后重新启用。
 
 ---
 
-## 5. 理论曲线来源
+## 7. 理论曲线来源
 
-### 5.1 能损计算链
+### 7.1 能损计算链
 
 理论曲线通过以下计算链得到：
 
@@ -211,10 +419,10 @@ RangeEnergyCalculator（射程-能量关系，硅材料）
     ↓
 DeltaEnergyCalculator（ΔE-E 理论曲线，多层硅探测器）
     ↓
-PidFitFunc（多粒子 + 多层全局拟合函数）
+PidFitFunc（多粒子 + 多层拟合函数）
 ```
 
-### 5.2 RangeEnergyCalculator（射程-能量计算器）
+### 7.2 RangeEnergyCalculator（射程-能量计算器）
 
 定义于 [range_energy_calculator.cpp](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/src/energy_calculator/range_energy_calculator.cpp#L29-L47)，基于 [catima](https://github.com/hrosiak/catima) 库（C++ 版本的 ATIMA/STOPPING 能损计算库）。
 
@@ -268,7 +476,7 @@ std::string RangeCachePath(const AppConfig &config, int charge, int mass) {
 
 ---
 
-### 5.3 DeltaEnergyCalculator（ΔE-E 理论曲线计算器）
+### 7.3 DeltaEnergyCalculator（ΔE-E 理论曲线计算器）
 
 定义于 [delta_energy_calculator.cpp](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/src/energy_calculator/delta_energy_calculator.cpp#L62-L92)，计算粒子在相邻两层硅探测器中的 ΔE-E 理论关系。
 
@@ -294,14 +502,14 @@ std::string RangeCachePath(const AppConfig &config, int charge, int mass) {
 
 | 对象名 | 方向 | x 轴 | y 轴 | 说明 |
 |--------|------|------|------|------|
-| `de_e_0` | ΔE → E | 在 d1 中沉积的能量 (MeV) | 穿透 d1 后的剩余能量 (MeV) | d1d2 层对 |
-| `e_de_0` | E → ΔE | 穿透 d1 后的剩余能量 (MeV) | 在 d1 中沉积的能量 (MeV) | d1d2 层对（反向） |
-| `de_e_1` | ΔE → E | 在 d2 中沉积的能量 (MeV) | 穿透 d2 后的剩余能量 (MeV) | d2d3 层对 |
-| `e_de_1` | E → ΔE | 穿透 d2 后的剩余能量 (MeV) | 在 d2 中沉积的能量 (MeV) | d2d3 层对（反向） |
-| `de_e_2` | ΔE → E | 在 d3 中沉积的能量 (MeV) | 穿透 d3 后的剩余能量 (MeV) | d3d4 层对 |
-| `e_de_2` | E → ΔE | 穿透 d3 后的剩余能量 (MeV) | 在 d3 中沉积的能量 (MeV) | d3d4 层对（反向） |
-| `de_e_3` | ΔE → E | 在 d4 中沉积的能量 (MeV) | 穿透 d4 后的剩余能量 (MeV) | d4s 层对 |
-| `e_de_3` | E → ΔE | 穿透 d4 后的剩余能量 (MeV) | 在 d4 中沉积的能量 (MeV) | d4s 层对（反向） |
+| `e_de_0` | ΔE → E | 在 d1 中沉积的能量 (MeV) | 穿透 d1 后的剩余能量 (MeV) | d1d2 层对 |
+| `de_e_0` | E → ΔE | 穿透 d1 后的剩余能量 (MeV) | 在 d1 中沉积的能量 (MeV) | d1d2 层对（反向） |
+| `e_de_1` | ΔE → E | 在 d2 中沉积的能量 (MeV) | 穿透 d2 后的剩余能量 (MeV) | d2d3 层对 |
+| `de_e_1` | E → ΔE | 穿透 d2 后的剩余能量 (MeV) | 在 d2 中沉积的能量 (MeV) | d2d3 层对（反向） |
+| `e_de_2` | ΔE → E | 在 d3 中沉积的能量 (MeV) | 穿透 d3 后的剩余能量 (MeV) | d3d4 层对 |
+| `de_e_2` | E → ΔE | 穿透 d3 后的剩余能量 (MeV) | 在 d3 中沉积的能量 (MeV) | d3d4 层对（反向） |
+| `e_de_3` | ΔE → E | 在 d4 中沉积的能量 (MeV) | 穿透 d4 后的剩余能量 (MeV) | d4s 层对 |
+| `de_e_3` | E → ΔE | 穿透 d4 后的剩余能量 (MeV) | 在 d4 中沉积的能量 (MeV) | d4s 层对（反向） |
 
 **缓存机制**：构造函数中先调用 `Load()` 尝试从缓存文件读取，若文件不存在或读取失败则调用 `Initialize()` 重新生成并写入缓存。**首次运行 calibrate_t0 时自动生成，无需手动操作。**
 
@@ -318,40 +526,13 @@ std::string RangeCachePath(const AppConfig &config, int charge, int mass) {
 
 **调用关系**：`DeltaEnergyCalculator` 内部依赖 `RangeEnergyCalculator`。在 `Initialize()` 中，先创建 `RangeEnergyCalculator` 对象（自动加载或生成 `si_z{Z}_a{A}.root`），然后利用其 `Range()` 和 `Energy()` 接口计算各层对的 ΔE-E 曲线。
 
-### 5.4 PidFitFunc — 多参数全局拟合函数
+### 7.4 PidFitFunc — 拟合函数数学推导
 
-定义于 [calibrate_t0.cpp](file:///home/ribll2026/ribll2026_www/github_code/brill2/src/brill/bin/calibrate_t0.cpp#L63-L101)，是传递给 ROOT TF1 的拟合函数，即 Minuit 极小化器的目标模型。
-
-#### 5.4.1 拟合参数（共 10 个，每探测器 2 个）
-
-| 参数索引 | 对应探测器 | 含义 |
-|---------|-----------|------|
-| par[0], par[1] | t0d1 | p0, p1 — d1 刻度系数 |
-| par[2], par[3] | t0d2 | p0, p1 — d2 刻度系数 |
-| par[4], par[5] | t0d3 | p0, p1 — d3 刻度系数 |
-| par[6], par[7] | t0d4 | p0, p1 — d4 刻度系数 |
-| par[8], par[9] | t0s | p0, p1 — t0s 刻度系数 |
-
-#### 5.4.2 参数跨层对共享（全局拟合）
-
-每个探测器（除 d1 和 t0s 两个端点外）同时出现在两个相邻层对中，使用同一组参数：
+以 d2d3 层对为例，所有版本的拟合函数遵循相同的物理模型。拟合 TGraph 的坐标约定为：
 
 ```
-d1d2 层对: par[0],par[1] (d1) + par[2],par[3] (d2)
-d2d3 层对: par[2],par[3] (d2) + par[4],par[5] (d3)
-d3d4 层对: par[4],par[5] (d3) + par[6],par[7] (d4)
-d4s  层对: par[6],par[7] (d4) + par[8],par[9] (t0s)
-```
-
-d2/d3/d4 的刻度系数同时受两个层对约束，属于**全局拟合**。
-
-#### 5.4.3 拟合函数数学推导（当前正确版本）
-
-以 d2d3 层对为例说明一号公式的物理含义。拟合 TGraph 的坐标约定为：
-
-```
-x = d2 的原始 ADC + offset
-y = d3 的原始 ADC
+gcali:  x = d2 的原始 ADC + offset   （浅层 = 先被粒子击中的探测器）
+        y = d3 的原始 ADC            （深层 = 后被粒子击中的探测器）
 ```
 
 拟合函数 `f(x)` 返回**预测的 d3 ADC 值**，Minuit 极小化 Σ(yᵢ − f(xᵢ))²：
@@ -372,7 +553,7 @@ y = d3 的原始 ADC
 
 ROOT 拟合器最小化 `(y_measured − deep_pred)²`。
 
-#### 5.4.4 为什么参数 p1 的位置至关重要
+#### 7.4.1 为什么参数 p1 的位置至关重要
 
 上述公式中，**p1_shallow（p1_d2）出现在分子中**：
 
@@ -392,14 +573,14 @@ deep_pred = (E_residual − p0_d3) / p1_d3
 
 ---
 
-#### 5.4.5 ★ 交换 x/y 轴导致拟合发散的根本原因
+#### 7.4.2 ★ 交换 x/y 轴导致拟合发散的根本原因
 
 **如果将 TGraph 的 x/y 轴交换**（即 x = 深层 ADC + offset, y = 浅层 ADC）：
 
 拟合函数变为 `f(x)` 返回**预测的浅层 ADC 值**：
 
 ```
-步骤 1: 浅层改为深层，深层 ADC → 深层 MeV
+步骤 1: 深层 ADC → 深层 MeV
         deep_mev = p0_deep + p1_deep × deep_raw
 
 步骤 2: 深层 MeV → 浅层 ΔE
@@ -433,33 +614,45 @@ shallow_pred = (ΔE − p0_d1) / p1_d1
 
 **本质上，哪个轴的 p1 出现在分母，哪个轴对应的探测器（通常更薄、p1 更小）就会放大梯度噪声。当前版本让较厚探测器（深层，p1 较大~0.006）的参数在分母，而薄探测器（浅层，p1 较小~0.0007）的参数在分子——这恰好是数值上更安全的方向。**
 
-#### 5.4.6 区间路由机制
+### 7.5 区间路由机制
 
 `pid_info` 数组定义每个 (层对, 粒子) 组合对应的 x 区间和 offset：
 
 ```cpp
-const std::vector<ParticlePidInfo> pid_info {
-    {0, 2,  4,  2000.0, 11000.0,       0},  // d1d2: 4He  → 全局 x ∈ [    2000,    11000]
-    //{0, 3,  6,  4500.0, 15000.0,   13000},  // d1d2: 6Li（暂注释，待优化cut）
-    {1, 2,  4,  3900.0,  8000.0,   30000},  // d2d3: 4He  → 全局 x ∈ [   33900,    38000]
-    {1, 4,  7, 11500.0, 19000.0,   39000},  // d2d3: 7Be  → 全局 x ∈ [   50500,    58000]
-    {1, 6, 12, 22500.0, 46000.0,   59000},  // d2d3: 12C  → 全局 x ∈ [   81500,   105000]
-    {2, 2,  4,  3400.0,  7000.0,  106000},  // d3d4: 4He  → 全局 x ∈ [  109400,   113000]
-    {2, 4,  7,  9500.0, 19000.0,  114000},  // d3d4: 7Be  → 全局 x ∈ [  123500,   133000]
-    {2, 6, 12, 22000.0, 40000.0,  134000},  // d3d4: 12C  → 全局 x ∈ [  156000,   174000]
-    {3, 1,  1,  1000.0,  2300.0,  175000},  // d4s:  1H   → 全局 x ∈ [  176000,   177300]
-    {3, 2,  4,  4000.0, 10000.0,  179000},  // d4s:  4He  → 全局 x ∈ [  183000,   189000]
-    {3, 4,  7, 12000.0, 28000.0,  191000},  // d4s:  7Be  → 全局 x ∈ [  203000,   219000]
+const std::vector<T0ParticlePidInfo> kT0PidInfo = {
+    //layer charge mass left    right   offset  weight
+    {0, 2,  4,  2250.0, 12000.0,       0, 1.0}, //d1d2 4He
+    {0, 3,  6,  4355.0, 12000.0,   13000, 1.0}, //d1d2 6Li
+    {1, 2,  4,  3890.0,  8250.0,   26000, 5.0}, //d2d3 4He
+    {1, 4,  7, 10930.0, 17320.0,   36000, 2.0}, //d2d3 7Be
+    {1, 6, 12, 22050.0, 45800.0,   55000, 1.0}, //d2d3 12C
+    {2, 1,  1,   820.0,  1700.0,  102000, 16.0}, //d3d4 1H
+    {2, 2,  4,  3400.0,  7100.0,  105000, 4.0}, //d3d4 4He
+    {2, 4,  7,  9600.0, 18200.0,  113000, 2.0}, //d3d4 7Be
+    {2, 6, 12, 22050.0, 45800.0,  133000, 1.0}, //d3d4 12C
+    {3, 1,  1,   960.0,  2300.0,  183000, 8.0}, //d4s 1H
+    {3, 2,  4,  3890.0,  9430.0,  187000, 2.0}, //d4s 4He
+    {3, 3,  6,  7550.0, 16600.0,  203000, 1.0}, //d4s 6Li
 };
 ```
 
-当 `x` 落入某个 `[left+offset, right+offset]` 区间时，PidFitFunc 自动选择对应的 `(layer, charge, mass)` 进行拟合计算。
+当 `x` 落入某个 `[left+offset, right+offset]` 区间时，PidFitFunc 自动选择对应的 `(layer, charge, mass)` 进行拟合计算，并应用对应的 `weight` 缩放（参见 §2.7）。
+
+**结构体字段说明**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| layer | int | 层对索引（0=d1d2, 1=d2d3, 2=d3d4, 3=d4s） |
+| charge | int | 电荷数 Z |
+| mass | int | 质量数 A |
+| left | double | 浅层 ADC 下限 |
+| right | double | 浅层 ADC 上限 |
+| offset | double | 全局 x 区间偏移 |
+| weight | double | 缩放倍率，有效权重 = weight² |
 
 **offset 布局原则**：每个 (层对, 粒子) 组合分配一段独立的全局 x 区间，区间之间留有 ≥2000 ADC 的间隔（gap），确保各段互不重叠。所有 offset 单调递增。TF1 总范围 0–330000 覆盖所有区间。
 
-> **注**：d1d2 的 ⁶Li 目前被注释掉。经测试，引入 ⁶Li 后拟合完全崩溃（chi2 飙升 4 个数量级），即使 TCutG 不重叠且理论曲线准确也未能消除。根因尚在排查中，疑似与 ⁴He 和 ⁶Li 共享 d1/d2 参数时 Minuit 优化路径的数值不稳定性有关。待手动调整 cut 后重新启用。
-
-#### 5.4.7 ★ left/right 对理论曲线的截断效应
+### 7.6 ★ left/right 对理论曲线的截断效应
 
 **这是本程序最容易被误解的设计点。** `left/right` 不仅用于筛选数据点和路由拟合区间，还对 PidFitFunc 内部使用的理论曲线产生了**截断效应**。
 
@@ -477,13 +670,13 @@ PidFitFunc::operator() 的执行逻辑：
 
 `DeltaEnergyCalculator::Energy(layer, de)` **内部使用的仍然是完整的理论曲线**，但调用入口 `de` 被 `left/right` 限制在了浅层 ADC 对应的能量范围内，因此实际上只查表了其中一段。
 
-**TH2D 展示时（GenerateTheoryCurve）**：绘制完整的理论曲线，不经过任何截断。
+**TH2F 展示时（DrawTheoryCurves）**：绘制完整的理论曲线，不经过任何截断。
 
 ```
                  完整 de-e 理论曲线
                  ╱                ╲
                 ╱                  ╲
-       ΔE      ╱                    ╲                ← TH2D 绘制整条红线
+       ΔE      ╱                    ╲                ← TH2F 绘制整条红线
       (浅层)  ╱                      ╲
              ╱                        ╲
             ╱    ┌──────────────┐      ╲
@@ -496,7 +689,7 @@ PidFitFunc::operator() 的执行逻辑：
 
 **后果对比**：
 
-| | PidFitFunc（拟合） | TH2D 理论曲线（展示） |
+| | PidFitFunc（拟合） | TH2F 理论曲线（展示） |
 |---|---|---|
 | 曲线范围 | 被 `left/right` 截断 | 完整物理曲线 |
 | 越界行为 | return 0 → 巨大残差 → 拟合失败 | 不存在越界 |
@@ -512,48 +705,71 @@ PidFitFunc::operator() 的执行逻辑：
 
 ---
 
-## 6. 算法流程
+## 8. 算法流程
 
-### 6.1 main() 函数流程
+### 8.1 v1 main() 函数流程
 
 ```
 1. 解析命令行参数
 2. 加载配置文件
 3. 验证探测器配置存在
-4. 在 estimate/ 目录中查找 pre_calibration 文件
-5. 读取 g_d1d2/g_d2d3/g_d3d4/g_d4s 四个 TGraph
-6. 扫描 src/brill/Cut/ 目录，加载所有符合命名格式的 TCutG
-7. 遍历每个 cut，对 TGraph 逐点执行 **TCutG + left/right 双重筛选**，命中点加入 gcali
-8. 从加载的 cut 中自动收集粒子列表，构建 PidFitFunc
-9. 初始化刻度参数
-10. 将 TGraph 与 TF1 进行全局拟合
-11. 输出刻度参数到 calibration/t0_{run}.txt
-12. 保存 gcali 到 calibration/t0_{trigger}{run}.root
+4. 提示重建理论曲线缓存（如有需要）
+5. 在 estimate/ 目录中查找 pre_calibration 文件
+6. 读取 g_d1d2/g_d2d3/g_d3d4/g_d4s 四个 TGraph
+7. 扫描 src/brill/Cut/ 目录，加载所有符合命名格式的 TCutG
+8. Stage 1：对 layer=1,2,3 的 cuts 执行 TCutG + left/right 双重筛选 → gcali_stage1
+9. 构建 PidFitFuncStage1（8 参数），TF1 范围 [25000, 220000]
+10. 拟合 Stage 1 → 获得 d2,d3,d4,s1 参数
+11. Stage 2：对 layer=0 的 cuts 执行筛选 → gcali_stage2
+12. 构建 PidFitFuncStage2（2 参数 + 固定 d2），TF1 范围 [0, 25000]
+13. 拟合 Stage 2 → 获得 d1 参数
+14. 组装 final_parameters[10]
+15. 输出刻度参数到 calibration/t0_{run:04d}.txt
+16. 校准 TH2F 并绘制叠加理论曲线的 Canvas
+17. 保存 gcali 和拟合函数到 calibration/t0_{trigger}{run:04d}.root
 ```
 
-### 6.2 初始刻度参数
+### 8.2 v2 main() 函数流程
 
-```cpp
-double initial_calibration_parameters[10] = {
-    0.0, 0.002,   // t0d1: p0=0, p1=0.002
-    0.0, 0.006,   // t0d2: p0=0, p1=0.006
-    0.0, 0.006,   // t0d3: p0=0, p1=0.006
-    0.0, 0.003,   // t0d4: p0=0, p1=0.003
-    0.0, 0.003    // t0s:  p0=0, p1=0.003
-};
+```
+1-7. 同 v1
+8.  Stage 1：对 layer=2 的 cuts 执行筛选 → gcali_stage1
+9.  构建 PidFitFuncBothFree（4 参数 d3+d4），TF1 范围 [100000, 180000]
+10. 拟合 Stage 1 → 获得 d3,d4 参数
+9.  Stage 2：对 layer=3 的 cuts 执行筛选 → gcali_stage2
+10. 构建 PidFitFuncFixLower（2 参数 s1 + 固定 d4），TF1 范围 [180000, 220000]
+11. 拟合 Stage 2 → 获得 s1 参数
+12. Stage 3：对 layer=1 的 cuts 执行筛选 → gcali_stage3
+13. 构建 PidFitFuncFixUpper（2 参数 d2 + 固定 d3），TF1 范围 [25000, 102000]
+14. 拟合 Stage 3 → 获得 d2 参数
+15. Stage 4：对 layer=0 的 cuts 执行筛选 → gcali_stage4
+16. 构建 PidFitFuncFixUpper（2 参数 d1 + 固定 d2），TF1 范围 [0, 25000]
+17. 拟合 Stage 4 → 获得 d1 参数
+18. 组装 final_parameters[10]
+19-20. 同 v1
 ```
 
-所有参数均设置拟合边界：
-- **p0（偏移量）**：`[0.0, 100.0]`（非负约束，避免限制拟合）  
-- **p1（增益系数）**：`[0.0, 1.0]`（物理约束：能量/ADC 必须为正）
+### 8.3 原始程序 main() 函数流程
 
-使用 `"R S"` 选项（TGraph 范围 + Strategy 2）进行拟合。
+```
+1. 解析命令行参数
+2. 加载配置文件
+3. 在 estimate/ 目录中查找 pre_calibration 文件
+4. 读取 g_d1d2/g_d2d3/g_d3d4/g_d4s 四个 TGraph
+5. 扫描 src/brill/Cut/ 目录，加载所有 TCutG
+6. 遍历每个 cut，对 TGraph 逐点执行双重筛选，命中点加入 gcali（所有 4 层对）
+7. 从加载的 cut 中自动收集粒子列表，构建 PidFitFunc（10 参数）
+8. 初始化刻度参数
+9. 将 TGraph 与 TF1 进行全局拟合（10 参数）
+10. 输出刻度参数到 calibration/t0_{run}.txt
+11. 保存 gcali 到 calibration/t0_{trigger}{run}.root
+```
 
 ---
 
-## 7. 输出文件
+## 9. 输出文件
 
-### 7.1 calibration/t0_{run}.txt
+### 9.1 calibration/t0_{run:04d}.txt
 
 例如 `calibration/t0_0057.txt`（以起始 run 命名，4 位补齐）。
 
@@ -575,35 +791,38 @@ double initial_calibration_parameters[10] = {
 | 3 | t0d4 |
 | 4 | t0s |
 
-### 7.2 calibration/t0_{trigger}{run}.root
+### 9.2 calibration/t0_{trigger}{run:04d}.root
 
 例如 `calibration/t0_t1057.root`。
 
-包含拟合用的 TGraph `gcali`，保存所有用于拟合的数据点（x 坐标已加 offset），可用于可视化检查拟合质量。
+v1 和 v2 输出文件包含：
+- `gcali_stage1`–`gcali_stage4`：各阶段拟合用 TGraph（x 坐标已加 offset）
+- `fcali_stage1`–`fcali_stage4`：拟合 TF1 对象
+- 校准后 TH2F（`d1d2_cal`、`d2d3_cal`、`d3d4_cal`、`d4s_cal`）
+- 叠加理论曲线的 Canvas（`c_d1d2_v1` 等）
 
 ---
 
-## 8. 与 pre_calibration 的衔接
-
-`calibrate_t0` 现在直接依赖 `pre_calibration` 的输出：
+## 10. 数据流
 
 ```
 match/*.root + ingot/t0s_*.root
         ↓ pre_calibration
-estimate/pre_calibration_t1{run}_*.root   (TGraph: g_d1d2, g_d2d3, g_d3d4, g_d4s)
-        ↓ calibrate_t0 (TCutG 筛选 + 理论曲线拟合)
-calibration/t0_{run}.txt
+estimate/pre_calibration_{trigger}{run}_*.root
+   （TGraph: g_d1d2, g_d2d3, g_d3d4, g_d4s）
+        ↓ calibrate_t0_v1（TCutG 筛选 + 理论曲线两阶段拟合）
+calibration/t0_{run:04d}.txt + t0_{trigger}{run:04d}.root
 ```
 
 **数据流**：TCutG 替代了原来的 `track_t0` PID 步骤，直接从 pre_calibration 的原始 ADC 散点中筛选目标粒子进行刻度拟合。
 
 ---
 
-## 9. 与 normalize 程序的关系
+## 11. 与 normalize 程序的关系
 
 | 程序 | 刻度对象 | 刻度形式 | 输入 |
 |------|---------|---------|------|
 | `normalize` | 单个 DSSD 的各条 strip | per-strip: `E_norm = p0 + p1 * E_raw` | 原始 DSSD 数据 |
-| `calibrate_t0` | 整个探测器层的能量 | per-layer: `E_cal = p0 + p1 * E_raw` | pre_calibration TGraph + TCutG cuts |
+| `calibrate_t0_v1` | 整个探测器层的能量 | per-layer: `E_cal = p0 + p1 * E_raw` | pre_calibration TGraph + TCutG cuts |
 
-**执行顺序**：`normalize`（条间归一化）→ `match`（正背面匹配）→ `pre_calibration`（生成 PID 图 + TGraph）→ （手动绘制 TCutG 截断）→ `calibrate_t0`（层间能量刻度）。
+**执行顺序**：`normalize`（条间归一化）→ `match`（正背面匹配）→ `pre_calibration`（生成 PID 图 + TGraph）→ （手动绘制 TCutG 截断）→ `calibrate_t0_v1`（层间能量刻度）。

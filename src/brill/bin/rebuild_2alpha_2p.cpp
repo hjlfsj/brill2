@@ -606,19 +606,22 @@ int main(int argc, char **argv) {
 		config.trigger = result["trigger"].as<std::string>();
 	}
 	brill::SetAssetsPath(config.assets);
-	const std::string calibration_path = TString::Format(
-		"%s/t0.txt",
-		brill::JoinPath(config.workspace, config.paths.calibration).c_str()
-	).Data();
-	CalibrationParameters calibration;
-	if (ReadCalibrationParameters(calibration_path, calibration)) {
-		return 1;
-	}
 
 	const int run = result["run"].as<int>();
 	const int end_run = result.count("end-run") ? result["end-run"].as<int>() : run;
 	if (end_run < run) {
 		std::cerr << "Error: end run " << end_run << " is smaller than run " << run << ".\n";
+		return 1;
+	}
+
+	int calib_run = ((run - 57) / 20) * 20 + 57;
+	const std::string calibration_path = TString::Format(
+		"%s/t0_%04d.txt",
+		brill::JoinPath(config.workspace, config.paths.calibration).c_str(),
+		calib_run
+	).Data();
+	CalibrationParameters calibration;
+	if (ReadCalibrationParameters(calibration_path, calibration)) {
 		return 1;
 	}
 

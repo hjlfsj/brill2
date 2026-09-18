@@ -36,6 +36,7 @@ struct T0ParticlePidInfo {
 	double left;
 	double right;
 	double offset;
+	double weight = 1.0;
 };
 
 extern const std::vector<T0ParticlePidInfo> kT0PidInfo;
@@ -72,6 +73,8 @@ int LoadCuts(
 );
 
 const T0ParticlePidInfo *GetPidInfo(int layer, int charge, int mass);
+
+int GetT0CalibrationRun(int run);
 
 extern const std::vector<ParticleIdentity> kCommonParticles;
 

@@ -35,6 +35,17 @@ struct C10He4Event {
 	double t0d2_4He_y = 0.0;
 	double t0d2_4He_z = 0.0;
 
+	double t0d1_10C_x = 0.0;
+	double t0d1_10C_y = 0.0;
+	double t0d3_10C_x = 0.0;
+	double t0d3_10C_y = 0.0;
+	double t0d1_4He_x = 0.0;
+	double t0d1_4He_y = 0.0;
+	double t0d3_4He_x = 0.0;
+	double t0d3_4He_y = 0.0;
+	double t0d4_4He_x = 0.0;
+	double t0d4_4He_y = 0.0;
+
 	double theta_beam = 0.0;
 	double phi_beam = 0.0;
 	double theta_4He = 0.0;

@@ -77,6 +77,7 @@ struct GUIContext {
 
 	TGNumberEntry *entry_run_min = nullptr;
 	TGNumberEntry *entry_run_max = nullptr;
+	TGNumberEntry *entry_excitation_bins = nullptr;
 
 	BeamCanvases bcs;
 	FilteredCanvases fcs;
@@ -86,6 +87,11 @@ struct GUIContext {
 	std::string config_path;
 	std::string c10_he4_dir;
 	std::vector<brill::C10He4Event> all_events;
+
+	double z_d1 = 0.0;
+	double z_d2 = 0.0;
+	double z_d3 = 0.0;
+	double z_d4 = 0.0;
 };
 
 static GUIContext g_ctx;
@@ -93,6 +99,7 @@ static volatile int g_menu_action = 0;
 static volatile int g_beam_filter = 0;
 static volatile bool g_beam_changed = false;
 static volatile bool g_redraw = false;
+static volatile bool g_is_track = false;
 
 static constexpr double kEbreak = 10.12;
 
@@ -222,10 +229,15 @@ static void RebuildAnalysisHistograms() {
 		TString::Format("#theta_{10C} vs #theta_{4He}%s;#theta_{10C} (deg);#theta_{4He} (deg)", label.Data()),
 		20, 0, 20, 30, 0, 30);
 	ac.h_theta_theta->SetDirectory(0);
+	int nbins = g_ctx.entry_excitation_bins
+		? g_ctx.entry_excitation_bins->GetIntNumber() : 200;
+	if (nbins < 10) nbins = 10;
+	double bin_keV = 20000.0 / nbins;
 	ac.h_excitation = new TH1D(
 		"h_excitation",
-		TString::Format("^{14}O Excitation Energy%s;E_{x} (MeV);Counts", label.Data()),
-		200, 5, 25);
+		TString::Format("^{14}O Excitation Energy%s;E_{x} (MeV);Counts / %.0f keV",
+			label.Data(), bin_keV),
+		nbins, 5, 25);
 	ac.h_excitation->SetDirectory(0);
 }
 
@@ -252,6 +264,58 @@ static void FillAllHistograms() {
 		g_ctx.bcs.h_e4_4He_e5_4He->Fill(ev.e5_4He, ev.e4_4He);
 	}
 	printf("\r  All events: %d filled.        \n", total);
+}
+
+static void ProjectToZ(
+	double target_x, double target_y,
+	double d2_x, double d2_y, double d2_z,
+	double z_layer,
+	double &pred_x, double &pred_y
+) {
+	double t = z_layer / d2_z;
+	pred_x = target_x + t * (d2_x - target_x);
+	pred_y = target_y + t * (d2_y - target_y);
+}
+
+static bool PassTrackCut(const brill::C10He4Event &ev) {
+	if (!ev.ppac_valid) return false;
+
+	double pred_x, pred_y;
+
+	ProjectToZ(ev.target_x, ev.target_y,
+		ev.t0d2_10C_x, ev.t0d2_10C_y, ev.t0d2_10C_z,
+		g_ctx.z_d1, pred_x, pred_y);
+	if (std::abs(pred_x - ev.t0d1_10C_x) > 2.0 || std::abs(pred_y - ev.t0d1_10C_y) > 2.0)
+		return false;
+
+	ProjectToZ(ev.target_x, ev.target_y,
+		ev.t0d2_10C_x, ev.t0d2_10C_y, ev.t0d2_10C_z,
+		g_ctx.z_d3, pred_x, pred_y);
+	if (std::abs(pred_x - ev.t0d3_10C_x) > 2.0 || std::abs(pred_y - ev.t0d3_10C_y) > 2.0)
+		return false;
+
+	ProjectToZ(ev.target_x, ev.target_y,
+		ev.t0d2_4He_x, ev.t0d2_4He_y, ev.t0d2_4He_z,
+		g_ctx.z_d1, pred_x, pred_y);
+	bool has_d1_4He = (ev.t0d1_4He_x != 0.0 || ev.t0d1_4He_y != 0.0);
+	if (has_d1_4He) {
+		if (std::abs(pred_x - ev.t0d1_4He_x) > 2.0 || std::abs(pred_y - ev.t0d1_4He_y) > 2.0)
+			return false;
+	}
+
+	ProjectToZ(ev.target_x, ev.target_y,
+		ev.t0d2_4He_x, ev.t0d2_4He_y, ev.t0d2_4He_z,
+		g_ctx.z_d3, pred_x, pred_y);
+	if (std::abs(pred_x - ev.t0d3_4He_x) > 2.0 || std::abs(pred_y - ev.t0d3_4He_y) > 2.0)
+		return false;
+
+	ProjectToZ(ev.target_x, ev.target_y,
+		ev.t0d2_4He_x, ev.t0d2_4He_y, ev.t0d2_4He_z,
+		g_ctx.z_d4, pred_x, pred_y);
+	if (std::abs(pred_x - ev.t0d4_4He_x) > 2.0 || std::abs(pred_y - ev.t0d4_4He_y) > 2.0)
+		return false;
+
+	return true;
 }
 
 static void FillFilteredAndAnalysis(TCutG *cut) {
@@ -294,6 +358,7 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 		fc.h_e4_4He_e5_4He->Fill(ev.e5_4He, ev.e4_4He);
 
 		if (!ev.ppac_valid) continue;
+		if (g_is_track && !PassTrackCut(ev)) continue;
 
 		printf("    run=%d  entry=%lld\n", ev.run_number, ev.entry);
 		analyzed++;
@@ -326,8 +391,9 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 	printf("\r  Filtering done: %d total, passed=%d, analyzed=%d        \n",
 		total, passed, analyzed);
 	g_ctx.status_bar->SetText(
-		TString::Format("Beam=%s: %d passed, %d analyzed. File: %s",
-			BeamLabel(), passed, analyzed, g_ctx.current_file.c_str()));
+		TString::Format("Beam=%s%s: %d passed, %d analyzed. File: %s",
+			BeamLabel(), g_is_track ? "+Track" : "",
+			passed, analyzed, g_ctx.current_file.c_str()));
 }
 
 static void DrawBeamHistograms() {
@@ -507,6 +573,17 @@ int main(int argc, char **argv) {
 	}
 	g_ctx.c10_he4_dir = brill::JoinPath(config.workspace, config.paths.c10_he4);
 
+	const auto *det_d1 = brill::FindDetectorConfig(config, "t0d1");
+	const auto *det_d2 = brill::FindDetectorConfig(config, "t0d2");
+	const auto *det_d3 = brill::FindDetectorConfig(config, "t0d3");
+	const auto *det_d4 = brill::FindDetectorConfig(config, "t0d4");
+	if (det_d1) g_ctx.z_d1 = det_d1->z_mm;
+	if (det_d2) g_ctx.z_d2 = det_d2->z_mm;
+	if (det_d3) g_ctx.z_d3 = det_d3->z_mm;
+	if (det_d4) g_ctx.z_d4 = det_d4->z_mm;
+	printf("T0 Z positions: d1=%.1f d2=%.1f d3=%.1f d4=%.1f mm\n",
+		g_ctx.z_d1, g_ctx.z_d2, g_ctx.z_d3, g_ctx.z_d4);
+
 	TApplication app("GUI_10C_4He", &argc, argv);
 	gStyle->SetPalette(kRainBow);
 
@@ -526,6 +603,10 @@ int main(int argc, char **argv) {
 	gInterpreter->Declare(
 		TString::Format("volatile bool &g_redraw = *((volatile bool*)%lu);",
 			(unsigned long)&g_redraw).Data()
+	);
+	gInterpreter->Declare(
+		TString::Format("volatile bool &g_is_track = *((volatile bool*)%lu);",
+			(unsigned long)&g_is_track).Data()
 	);
 
 	TGMainFrame *main_frame = new TGMainFrame(gClient->GetRoot(), 1200, 900);
@@ -581,10 +662,26 @@ int main(int argc, char **argv) {
 	beam_frame->AddFrame(entry_run_max, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
 	g_ctx.entry_run_max = entry_run_max;
 
+	TGLabel *bins_label = new TGLabel(beam_frame, "  Bins: ");
+	beam_frame->AddFrame(bins_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
+
+	TGNumberEntry *entry_excitation_bins = new TGNumberEntry(beam_frame, 200, 5, -1,
+		TGNumberFormat::kNESInteger,
+		TGNumberFormat::kNEANonNegative,
+		TGNumberFormat::kNELLimitMinMax, 10, 1000);
+	TGLabel *bins_label2 = new TGLabel(beam_frame, "/bin");
+	beam_frame->AddFrame(entry_excitation_bins, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+	beam_frame->AddFrame(bins_label2, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+	g_ctx.entry_excitation_bins = entry_excitation_bins;
+
 	TGTextButton *btn_draw = new TGTextButton(beam_frame, "Draw");
 	btn_draw->SetCommand("g_redraw = true;");
 	beam_frame->AddFrame(btn_draw, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
 	g_ctx.btn_draw = btn_draw;
+
+	TGCheckButton *chk_track = new TGCheckButton(beam_frame, "Track");
+	chk_track->SetCommand("g_is_track = !g_is_track; g_beam_changed = true;");
+	beam_frame->AddFrame(chk_track, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
 
 	main_frame->AddFrame(beam_frame, new TGLayoutHints(kLHintsTop | kLHintsLeft, 4, 4, 2, 2));
 

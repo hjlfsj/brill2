@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
 	TMultiGraph mg_p0;
 	TMultiGraph mg_p1;
 	mg_p0.SetTitle("Calibration p0 (offset);Detector;Offset");
-	mg_p1.SetTitle("Calibration p1 (scale);Detector;Scale");
+	mg_p1.SetTitle("Calibration p1 (scale #times 10^{3});Detector;Scale [keV/ch]");
 
 	std::vector<std::vector<double>> p0_data(runs.size(), std::vector<double>(kLayerCount));
 	std::vector<std::vector<double>> p1_data(runs.size(), std::vector<double>(kLayerCount));
@@ -163,9 +163,8 @@ int main(int argc, char **argv) {
 
 		for (int layer = 0; layer < kLayerCount; ++layer) {
 			gp0->SetPoint(layer, layer, p0_data[run_idx][layer]);
-			gp1->SetPoint(layer, layer, p1_data[run_idx][layer]);
-			g_p0->SetPoint(g_p0->GetN(), layer + run_idx * 0.1, p0_data[run_idx][layer]);
-			g_p1->SetPoint(g_p1->GetN(), layer + run_idx * 0.1, p1_data[run_idx][layer]);
+			gp1->SetPoint(layer, layer, p1_data[run_idx][layer] * 1000.0);
+			g_p1->SetPoint(g_p1->GetN(), layer + run_idx * 0.1, p1_data[run_idx][layer] * 1000.0);
 		}
 
 		mg_p0.Add(gp0, "lp");
@@ -184,7 +183,7 @@ int main(int argc, char **argv) {
 	leg_p0.Draw();
 	c_p0.Write();
 
-	TCanvas c_p1("c_p1", "Calibration p1 (scale)", 1200, 600);
+	TCanvas c_p1("c_p1", "Calibration p1 (scale x10^{3})", 1200, 600);
 	mg_p1.Draw("a lp");
 	mg_p1.GetXaxis()->Set(5, -0.5, 4.5);
 	mg_p1.GetXaxis()->SetNdivisions(5);

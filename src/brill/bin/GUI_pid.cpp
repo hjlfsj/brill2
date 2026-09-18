@@ -75,16 +75,16 @@ static void RebuildMainHistograms() {
 	if (cv.h_d4_t0s) delete cv.h_d4_t0s;
 
 	cv.h_d1_d2 = new TH2D("h_d1_d2", "PID D1-D2;D2 Energy (MeV);D1 Energy (MeV)",
-		1000, 0, 400, 1000, 0, 200);
+		1000, 0, 300, 1000, 0, 25);
 	cv.h_d1_d2->SetDirectory(0);
 	cv.h_d2_d3 = new TH2D("h_d2_d3", "PID D2-D3;D3 Energy (MeV);D2 Energy (MeV)",
-		1000, 0, 400, 1000, 0, 400);
+		1000, 0, 300, 1000, 0, 350);
 	cv.h_d2_d3->SetDirectory(0);
 	cv.h_d3_d4 = new TH2D("h_d3_d4", "PID D3-D4;D4 Energy (MeV);D3 Energy (MeV)",
-		1000, 0, 300, 1000, 0, 300);
+		1000, 0, 250, 1000, 0, 300);
 	cv.h_d3_d4->SetDirectory(0);
 	cv.h_d4_t0s = new TH2D("h_d4_t0s", "PID D4-T0S;T0S Energy (MeV);D4 Energy (MeV)",
-		1000, 0, 300, 1000, 0, 300);
+		1000, 0, 200, 1000, 0, 250);
 	cv.h_d4_t0s->SetDirectory(0);
 }
 
@@ -96,16 +96,16 @@ static void RebuildSecHistograms() {
 	if (cv.h_d4_t0s) delete cv.h_d4_t0s;
 
 	cv.h_d1_d2 = new TH2D("h_d1_d2_sec", "PID D1-D2 (sec);D2 Energy (MeV);D1 Energy (MeV)",
-		1000, 0, 400, 1000, 0, 200);
+		1000, 0, 300, 1000, 0, 25);
 	cv.h_d1_d2->SetDirectory(0);
 	cv.h_d2_d3 = new TH2D("h_d2_d3_sec", "PID D2-D3 (sec);D3 Energy (MeV);D2 Energy (MeV)",
-		1000, 0, 400, 1000, 0, 400);
+		1000, 0, 300, 1000, 0, 350);
 	cv.h_d2_d3->SetDirectory(0);
 	cv.h_d3_d4 = new TH2D("h_d3_d4_sec", "PID D3-D4 (sec);D4 Energy (MeV);D3 Energy (MeV)",
-		1000, 0, 300, 1000, 0, 300);
+		1000, 0, 250, 1000, 0, 300);
 	cv.h_d3_d4->SetDirectory(0);
 	cv.h_d4_t0s = new TH2D("h_d4_t0s_sec", "PID D4-T0S (sec);T0S Energy (MeV);D4 Energy (MeV)",
-		1000, 0, 300, 1000, 0, 300);
+		1000, 0, 200, 1000, 0, 250);
 	cv.h_d4_t0s->SetDirectory(0);
 }
 
@@ -204,6 +204,27 @@ static void OnDraw() {
 			printf("  Skip run %d: d1 file not found\n", run);
 			continue;
 		}
+
+		int calib_run = ((run - 57) / 20) * 20 + 57;
+		std::string calib_path = TString::Format(
+			"%s/t0_%04d.txt",
+			brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.calibration).c_str(),
+			calib_run
+		).Data();
+		if (brill::ReadD6LiCalibration(calib_path, g_ctx.calib)) {
+			std::cerr << "Error: Read calibration from " << calib_path << " failed, skipping run " << run << ".\n";
+			continue;
+		}
+		printf("  calib (t0_%04d.txt): "
+			"d1(p0=%+.6f,p1=%.6f) d2(p0=%+.6f,p1=%.6f) "
+			"d3(p0=%+.6f,p1=%.6f) d4(p0=%+.6f,p1=%.6f) "
+			"s(p0=%+.6f,p1=%.6f)\n",
+			calib_run,
+			g_ctx.calib.p0[0], g_ctx.calib.p1[0],
+			g_ctx.calib.p0[1], g_ctx.calib.p1[1],
+			g_ctx.calib.p0[2], g_ctx.calib.p1[2],
+			g_ctx.calib.p0[3], g_ctx.calib.p1[3],
+			g_ctx.calib.p0[4], g_ctx.calib.p1[4]);
 
 		TFile f1(d1_path, "read");
 		TFile f2(d2_path, "read");
@@ -332,16 +353,6 @@ int main(int argc, char **argv) {
 	}
 	g_ctx.match_dir = brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.match);
 	g_ctx.ingot_dir = brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.ingot);
-
-	std::string calib_path = TString::Format(
-		"%s/t0.txt",
-		brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.calibration).c_str()
-	).Data();
-	if (brill::ReadD6LiCalibration(calib_path, g_ctx.calib)) {
-		std::cerr << "Error: Read calibration from " << calib_path << " failed.\n";
-		return 1;
-	}
-	printf("Calibration loaded: %s\n", calib_path.c_str());
 
 	TApplication app("GUI_pid", &argc, argv);
 	gStyle->SetPalette(kRainBow);

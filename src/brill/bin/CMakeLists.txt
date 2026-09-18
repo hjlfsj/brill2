@@ -161,6 +161,18 @@ target_link_libraries(
 	ROOT::Minuit
 )
 
+add_executable(calibrate_t0_v2 calibrate_t0_v2.cpp)
+target_link_libraries(
+	calibrate_t0_v2
+	PRIVATE
+	config
+	t0_calibrate_utils
+	energy_calculator
+	ROOT::Graf
+	ROOT::Gpad
+	ROOT::Minuit
+)
+
 add_executable(extract_d_Li6 d_6Li/extract_d_Li6.cpp)
 target_link_libraries(
 	extract_d_Li6

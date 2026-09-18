@@ -58,17 +58,6 @@ int main(int argc, char **argv) {
 	std::string track_dir = brill::JoinPath(config.workspace, config.paths.track);
 	std::string beam_dir = brill::JoinPath(config.workspace, config.paths.beam);
 	std::string output_dir = brill::JoinPath(config.workspace, config.paths.d_Li6);
-	std::string calibration_path = TString::Format(
-		"%s/t0.txt",
-		brill::JoinPath(config.workspace, config.paths.calibration).c_str()
-	).Data();
-
-	brill::D6LiCalibration calib;
-	if (brill::ReadD6LiCalibration(calibration_path, calib)) {
-		std::cerr << "Error: Read calibration from " << calibration_path << " failed.\n";
-		return 1;
-	}
-	printf("Calibration loaded: %s\n", calibration_path.c_str());
 
 	TString cut_path = "/home/ribll2026/ribll2026_www/github_code/brill2/src/brill/Cut/cal_d3_d4_10C_cut.C";
 	gROOT->ProcessLine(TString::Format(".x %s", cut_path.Data()));
@@ -196,6 +185,28 @@ int main(int argc, char **argv) {
 				brill::SetupInput(ppac_tree, ppac_event, "");
 			}
 		}
+
+		int calib_run = ((run - 57) / 20) * 20 + 57;
+		std::string calibration_path = TString::Format(
+			"%s/t0_%04d.txt",
+			brill::JoinPath(config.workspace, config.paths.calibration).c_str(),
+			calib_run
+		).Data();
+		brill::D6LiCalibration calib;
+		if (brill::ReadD6LiCalibration(calibration_path, calib)) {
+			std::cerr << "Error: Read calibration from " << calibration_path << " failed, skipping run " << run << ".\n";
+			continue;
+		}
+		printf("  calib (t0_%04d.txt): "
+			"d1(p0=%+.6f,p1=%.6f) d2(p0=%+.6f,p1=%.6f) "
+			"d3(p0=%+.6f,p1=%.6f) d4(p0=%+.6f,p1=%.6f) "
+			"s(p0=%+.6f,p1=%.6f)\n",
+			calib_run,
+			calib.p0[0], calib.p1[0],
+			calib.p0[1], calib.p1[1],
+			calib.p0[2], calib.p1[2],
+			calib.p0[3], calib.p1[3],
+			calib.p0[4], calib.p1[4]);
 
 		Long64_t n_entries = d1_tree->GetEntries();
 		printf("Run %d: %lld events", run, n_entries);

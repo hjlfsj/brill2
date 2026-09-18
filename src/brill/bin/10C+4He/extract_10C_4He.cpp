@@ -62,17 +62,6 @@ int main(int argc, char **argv) {
 	std::string beam_dir = brill::JoinPath(config.workspace, config.paths.beam);
 	std::string ingot_dir = brill::JoinPath(config.workspace, config.paths.ingot);
 	std::string output_dir = brill::JoinPath(config.workspace, config.paths.c10_he4);
-	std::string calibration_path = TString::Format(
-		"%s/t0.txt",
-		brill::JoinPath(config.workspace, config.paths.calibration).c_str()
-	).Data();
-
-	brill::C10He4Calibration calib;
-	if (brill::ReadC10He4Calibration(calibration_path, calib)) {
-		std::cerr << "Error: Read calibration from " << calibration_path << " failed.\n";
-		return 1;
-	}
-	printf("Calibration loaded: %s\n", calibration_path.c_str());
 
 	TString cut_d2d3_path = "/home/ribll2026/ribll2026_www/github_code/brill2/src/brill/Cut/cal_d2_d3_stop_10C_cut.C";
 	gROOT->ProcessLine(TString::Format(".x %s", cut_d2d3_path.Data()));
@@ -203,6 +192,28 @@ int main(int argc, char **argv) {
 			}
 		}
 
+		int calib_run = ((run - 57) / 20) * 20 + 57;
+		std::string calibration_path = TString::Format(
+			"%s/t0_%04d.txt",
+			brill::JoinPath(config.workspace, config.paths.calibration).c_str(),
+			calib_run
+		).Data();
+		brill::C10He4Calibration calib;
+		if (brill::ReadC10He4Calibration(calibration_path, calib)) {
+			std::cerr << "Error: Read calibration from " << calibration_path << " failed, skipping run " << run << ".\n";
+			continue;
+		}
+		printf("  calib (t0_%04d.txt): "
+			"d1(p0=%+.6f,p1=%.6f) d2(p0=%+.6f,p1=%.6f) "
+			"d3(p0=%+.6f,p1=%.6f) d4(p0=%+.6f,p1=%.6f) "
+			"s(p0=%+.6f,p1=%.6f)\n",
+			calib_run,
+			calib.p0[0], calib.p1[0],
+			calib.p0[1], calib.p1[1],
+			calib.p0[2], calib.p1[2],
+			calib.p0[3], calib.p1[3],
+			calib.p0[4], calib.p1[4]);
+
 		Long64_t n_entries = d1_tree->GetEntries();
 		printf("Run %d: %lld events", run, n_entries);
 		fflush(stdout);
@@ -246,26 +257,6 @@ int main(int argc, char **argv) {
 				idx_4He_d3 = 0;
 			}
 
-			double dx, dy;
-			dx = std::abs(d1_event.x[idx_10C_d1] - d2_event.x[idx_10C_d2]);
-			dy = std::abs(d1_event.y[idx_10C_d1] - d2_event.y[idx_10C_d2]);
-			if (dx > 2.0 || dy > 2.0) continue;
-			dx = std::abs(d2_event.x[idx_10C_d2] - d3_event.x[idx_10C_d3]);
-			dy = std::abs(d2_event.y[idx_10C_d2] - d3_event.y[idx_10C_d3]);
-			if (dx > 2.0 || dy > 2.0) continue;
-
-			if (d1_hit == 2) {
-				dx = std::abs(d1_event.x[idx_4He_d1] - d2_event.x[idx_4He_d2]);
-				dy = std::abs(d1_event.y[idx_4He_d1] - d2_event.y[idx_4He_d2]);
-				if (dx > 2.0 || dy > 2.0) continue;
-			}
-			dx = std::abs(d2_event.x[idx_4He_d2] - d3_event.x[idx_4He_d3]);
-			dy = std::abs(d2_event.y[idx_4He_d2] - d3_event.y[idx_4He_d3]);
-			if (dx > 2.0 || dy > 2.0) continue;
-			dx = std::abs(d3_event.x[idx_4He_d3] - d4_event.x[0]);
-			dy = std::abs(d3_event.y[idx_4He_d3] - d4_event.y[0]);
-			if (dx > 2.0 || dy > 2.0) continue;
-
 			double e1_10C = brill::CalibrateC10He4Energy(calib, 0, d1_event.energy[idx_10C_d1]);
 			double e2_10C = brill::CalibrateC10He4Energy(calib, 1, d2_event.energy[idx_10C_d2]);
 			double e3_10C = brill::CalibrateC10He4Energy(calib, 2, d3_event.energy[idx_10C_d3]);
@@ -300,6 +291,17 @@ int main(int argc, char **argv) {
 			out_event.t0d2_4He_x = d2_event.x[idx_4He_d2];
 			out_event.t0d2_4He_y = d2_event.y[idx_4He_d2];
 			out_event.t0d2_4He_z = d2_event.z[idx_4He_d2];
+
+			out_event.t0d1_10C_x = d1_event.x[idx_10C_d1];
+			out_event.t0d1_10C_y = d1_event.y[idx_10C_d1];
+			out_event.t0d3_10C_x = d3_event.x[idx_10C_d3];
+			out_event.t0d3_10C_y = d3_event.y[idx_10C_d3];
+			out_event.t0d1_4He_x = (d1_hit == 2) ? d1_event.x[idx_4He_d1] : 0.0;
+			out_event.t0d1_4He_y = (d1_hit == 2) ? d1_event.y[idx_4He_d1] : 0.0;
+			out_event.t0d3_4He_x = d3_event.x[idx_4He_d3];
+			out_event.t0d3_4He_y = d3_event.y[idx_4He_d3];
+			out_event.t0d4_4He_x = d4_event.x[0];
+			out_event.t0d4_4He_y = d4_event.y[0];
 
 			const double target_z = 0.0;
 			if (ppac_event.valid) {

@@ -13,7 +13,6 @@
 #include <TF1.h>
 #include <TFile.h>
 #include <TGraph.h>
-
 #include <TH2F.h>
 #include <TROOT.h>
 #include <TString.h>
@@ -31,69 +30,13 @@ void PrintUsage(const cxxopts::Options &options) {
 	std::cout << options.help() << "\n";
 }
 
-class PidFitFuncStage1 {
+class PidFitFuncBothFree {
 public:
-	PidFitFuncStage1(
-		const std::vector<std::pair<int, int>> &projectiles,
-		const brill::AppConfig &config
-	) {
-		for (const auto &p : projectiles) {
-			calculators_.insert(
-				std::make_pair(
-					p.first * 100 + p.second,
-					std::make_unique<brill::DeltaEnergyCalculator>(
-						config,
-						p.first,
-						p.second
-					)
-				)
-			);
-		}
-	}
-
-	double operator()(double *x, double *par) const {
-		for (const auto &info : brill::kT0PidInfo) {
-			if (info.layer == 0) continue;
-			if (
-				x[0] > info.left + info.offset
-				&& x[0] < info.right + info.offset
-			) {
-				int upper_idx = (info.layer - 1) * 2;
-				int lower_idx = info.layer * 2;
-				double de =
-					par[upper_idx]
-					+ par[upper_idx + 1]
-						* (x[0] - info.offset);
-				auto it = calculators_.find(
-					info.charge * 100 + info.mass);
-				if (it == calculators_.end()) return 0.0;
-				double e = it->second->Energy(
-					info.layer, de);
-				double result = (e - par[lower_idx])
-					/ par[lower_idx + 1];
-				if (info.weight != 1.0) {
-					result *= info.weight;
-				}
-				return result;
-			}
-		}
-		return 0.0;
-	}
-
-private:
-	std::map<int,
-		std::shared_ptr<brill::DeltaEnergyCalculator>>
-		calculators_;
-};
-
-class PidFitFuncStage2 {
-public:
-	PidFitFuncStage2(
+	PidFitFuncBothFree(
 		const std::vector<std::pair<int, int>> &projectiles,
 		const brill::AppConfig &config,
-		double d2_p0,
-		double d2_p1
-	) : d2_p0_(d2_p0), d2_p1_(d2_p1) {
+		int layer
+	) : layer_(layer) {
 		for (const auto &p : projectiles) {
 			calculators_.insert(
 				std::make_pair(
@@ -110,7 +53,7 @@ public:
 
 	double operator()(double *x, double *par) const {
 		for (const auto &info : brill::kT0PidInfo) {
-			if (info.layer != 0) continue;
+			if (info.layer != layer_) continue;
 			if (
 				x[0] > info.left + info.offset
 				&& x[0] < info.right + info.offset
@@ -123,17 +66,125 @@ public:
 				if (it == calculators_.end()) return 0.0;
 				double e = it->second->Energy(
 					info.layer, de);
-				double result = (e - d2_p0_) / d2_p1_;
-				if (info.weight != 1.0) result *= info.weight;
-				return result;
+				return (e - par[2]) / par[3];
 			}
 		}
 		return 0.0;
 	}
 
 private:
-	double d2_p0_;
-	double d2_p1_;
+	int layer_;
+	std::map<int,
+		std::shared_ptr<brill::DeltaEnergyCalculator>>
+		calculators_;
+};
+
+class PidFitFuncFixUpper {
+public:
+	PidFitFuncFixUpper(
+		const std::vector<std::pair<int, int>> &projectiles,
+		const brill::AppConfig &config,
+		int layer,
+		double fixed_p0,
+		double fixed_p1
+	) : layer_(layer),
+		fixed_p0_(fixed_p0),
+		fixed_p1_(fixed_p1) {
+		for (const auto &p : projectiles) {
+			calculators_.insert(
+				std::make_pair(
+					p.first * 100 + p.second,
+					std::make_unique<brill::DeltaEnergyCalculator>(
+						config,
+						p.first,
+						p.second
+					)
+				)
+			);
+		}
+	}
+
+	double operator()(double *x, double *par) const {
+		for (const auto &info : brill::kT0PidInfo) {
+			if (info.layer != layer_) continue;
+			if (
+				x[0] > info.left + info.offset
+				&& x[0] < info.right + info.offset
+			) {
+				double de =
+					par[0]
+					+ par[1] * (x[0] - info.offset);
+				auto it = calculators_.find(
+					info.charge * 100 + info.mass);
+				if (it == calculators_.end()) return 0.0;
+				double e = it->second->Energy(
+					info.layer, de);
+				return (e - fixed_p0_) / fixed_p1_;
+			}
+		}
+		return 0.0;
+	}
+
+private:
+	int layer_;
+	double fixed_p0_;
+	double fixed_p1_;
+	std::map<int,
+		std::shared_ptr<brill::DeltaEnergyCalculator>>
+		calculators_;
+};
+
+class PidFitFuncFixLower {
+public:
+	PidFitFuncFixLower(
+		const std::vector<std::pair<int, int>> &projectiles,
+		const brill::AppConfig &config,
+		int layer,
+		double fixed_p0,
+		double fixed_p1
+	) : layer_(layer),
+		fixed_p0_(fixed_p0),
+		fixed_p1_(fixed_p1) {
+		for (const auto &p : projectiles) {
+			calculators_.insert(
+				std::make_pair(
+					p.first * 100 + p.second,
+					std::make_unique<brill::DeltaEnergyCalculator>(
+						config,
+						p.first,
+						p.second
+					)
+				)
+			);
+		}
+	}
+
+	double operator()(double *x, double *par) const {
+		for (const auto &info : brill::kT0PidInfo) {
+			if (info.layer != layer_) continue;
+			if (
+				x[0] > info.left + info.offset
+				&& x[0] < info.right + info.offset
+			) {
+				double de =
+					fixed_p0_
+					+ fixed_p1_
+						* (x[0] - info.offset);
+				auto it = calculators_.find(
+					info.charge * 100 + info.mass);
+				if (it == calculators_.end()) return 0.0;
+				double e = it->second->Energy(
+					info.layer, de);
+				return (e - par[0]) / par[1];
+			}
+		}
+		return 0.0;
+	}
+
+private:
+	int layer_;
+	double fixed_p0_;
+	double fixed_p1_;
 	std::map<int,
 		std::shared_ptr<brill::DeltaEnergyCalculator>>
 		calculators_;
@@ -223,8 +274,6 @@ int FillGcaliForLayers(
 			continue;
 		}
 
-		double y_scale = info->weight;
-
 		const TGraph *g = graphs[layer];
 		int hit_count = 0;
 		for (int pt = 0; pt < g->GetN(); ++pt) {
@@ -235,7 +284,7 @@ int FillGcaliForLayers(
 				&& shallow < info->right) {
 				gcali.AddPoint(
 					shallow + info->offset,
-					deep * y_scale);
+					deep);
 				++hit_count;
 			}
 		}
@@ -243,11 +292,7 @@ int FillGcaliForLayers(
 			<< " Z=" << cut.particle.charge
 			<< " A=" << cut.particle.mass
 			<< ": " << hit_count
-			<< " points selected";
-		if (y_scale != 1.0) {
-			std::cout << " [scaled y×" << y_scale << "]";
-		}
-		std::cout << "\n";
+			<< " points selected\n";
 		projectile_set.insert(
 			{cut.particle.charge,
 			cut.particle.mass});
@@ -361,10 +406,12 @@ void DrawTheoryCurves(
 
 int main(int argc, char **argv) {
 	cxxopts::Options options(
-		"calibrate_t0_v1",
-		"T0 calibration v1: two-stage fit "
-		"(stage1: d2-d3/d3-d4/d4-s1, "
-		"stage2: d1-d2 with fixed d2).");
+		"calibrate_t0_v2",
+		"T0 calibration v2: four-stage sequential fit "
+		"(stage1: d3-d4, "
+		"stage2: d4-s1, "
+		"stage3: d2-d3, "
+		"stage4: d1-d2).");
 	options.add_options()
 		("h,help", "Print help information.")
 		("r,run", "Start run number.",
@@ -495,11 +542,11 @@ int main(int argc, char **argv) {
 
 	std::cout
 		<< "\n========================================\n"
-		<< "Stage 1: Fit d2-d3, d3-d4, d4-s1 "
-		<< "(8 parameters: d2,d3,d4,s1)\n"
+		<< "Stage 1: Fit d3-d4 "
+		<< "(4 parameters: d3, d4)\n"
 		<< "========================================\n";
 
-	std::set<int> stage1_layers = {1, 2, 3};
+	std::set<int> stage1_layers = {2};
 	std::set<std::pair<int, int>> stage1_projectile_set;
 	TGraph gcali_stage1;
 	FillGcaliForLayers(
@@ -518,29 +565,25 @@ int main(int argc, char **argv) {
 		stage1_projectile_set.begin(),
 		stage1_projectile_set.end());
 
-	double stage1_init_params[8] = {
-		0.0, 0.006,
-		0.0, 0.006,
-		0.0, 0.003,
-		0.0, 0.003
+	double stage1_init_params[4] = {
+		0.0, 0.007,
+		0.0, 0.005
 	};
 
-	PidFitFuncStage1 pid_fit_stage1(
-		stage1_projectiles, config);
+	PidFitFuncBothFree pid_fit_stage1(
+		stage1_projectiles, config, 2);
 	TF1 fcali_stage1(
 		"fcali_stage1", pid_fit_stage1,
-		25000.0, 220000.0, 8);
+		100000.0, 180000.0, 4);
 	fcali_stage1.SetNpx(10000);
-	for (int i = 0; i < 8; ++i) {
+	for (int i = 0; i < 4; ++i) {
 		fcali_stage1.SetParameter(
 			i, stage1_init_params[i]);
 	}
-	for (int i = 0; i < 8; ++i) {
-		fcali_stage1.SetParLimits(
-			i,
-			(i % 2 == 0) ? 0.0 : 0.0,
-			(i % 2 == 0) ? 100.0 : 1.0);
-	}
+	fcali_stage1.SetParLimits(0, -1.0, 1.0);
+	fcali_stage1.SetParLimits(1, 0.006, 0.008);
+	fcali_stage1.SetParLimits(2, -1.0, 1.0);
+	fcali_stage1.SetParLimits(3, 0.004, 0.006);
 
 	std::cout << "Fitting stage 1 with \"R S\"...\n";
 	gcali_stage1.Fit(&fcali_stage1, "R S");
@@ -557,28 +600,26 @@ int main(int argc, char **argv) {
 		<< fcali_stage1.GetProb() << "\n";
 
 	double *stage1_pars = fcali_stage1.GetParameters();
-	std::cout << "Stage 1 parameters:\n";
-	const char *stage1_layer_names[4] = {
-		"t0d2", "t0d3", "t0d4", "t0s"};
-	for (int i = 0; i < 4; ++i) {
-		std::cout << "  " << stage1_layer_names[i]
-			<< ": p0 = " << stage1_pars[i * 2]
-			<< ", p1 = " << stage1_pars[i * 2 + 1]
-			<< "\n";
-	}
+	std::cout << "Stage 1 parameters:\n"
+		<< "  t0d3: p0 = " << stage1_pars[0]
+		<< ", p1 = " << stage1_pars[1] << "\n"
+		<< "  t0d4: p0 = " << stage1_pars[2]
+		<< ", p1 = " << stage1_pars[3] << "\n";
 
-	double d2_p0 = stage1_pars[0];
-	double d2_p1 = stage1_pars[1];
+	double d3_p0 = stage1_pars[0];
+	double d3_p1 = stage1_pars[1];
+	double d4_p0 = stage1_pars[2];
+	double d4_p1 = stage1_pars[3];
 
 	std::cout
 		<< "\n========================================\n"
-		<< "Stage 2: Fit d1-d2 "
-		<< "(2 parameters: d1 only, d2 fixed)\n"
-		<< "  d2 p0 = " << d2_p0
-		<< ", d2 p1 = " << d2_p1 << "\n"
+		<< "Stage 2: Fit d4-s1 "
+		<< "(2 parameters: s1, d4 fixed)\n"
+		<< "  d4 p0 = " << d4_p0
+		<< ", d4 p1 = " << d4_p1 << "\n"
 		<< "========================================\n";
 
-	std::set<int> stage2_layers = {0};
+	std::set<int> stage2_layers = {3};
 	std::set<std::pair<int, int>> stage2_projectile_set;
 	TGraph gcali_stage2;
 	FillGcaliForLayers(
@@ -597,25 +638,21 @@ int main(int argc, char **argv) {
 		stage2_projectile_set.begin(),
 		stage2_projectile_set.end());
 
-	double stage2_init_params[2] = {0.0, 0.002};
+	double stage2_init_params[2] = {0.0, 0.003};
 
-	PidFitFuncStage2 pid_fit_stage2(
+	PidFitFuncFixLower pid_fit_stage2(
 		stage2_projectiles, config,
-		d2_p0, d2_p1);
+		3, d4_p0, d4_p1);
 	TF1 fcali_stage2(
 		"fcali_stage2", pid_fit_stage2,
-		0.0, 25000.0, 2);
+		180000.0, 220000.0, 2);
 	fcali_stage2.SetNpx(10000);
 	for (int i = 0; i < 2; ++i) {
 		fcali_stage2.SetParameter(
 			i, stage2_init_params[i]);
 	}
-	for (int i = 0; i < 2; ++i) {
-		fcali_stage2.SetParLimits(
-			i,
-			(i % 2 == 0) ? 0.0 : 0.0,
-			(i % 2 == 0) ? 100.0 : 1.0);
-	}
+	fcali_stage2.SetParLimits(0, -1.0, 1.0);
+	fcali_stage2.SetParLimits(1, 0.0, 0.1);
 
 	std::cout << "Fitting stage 2 with \"R S\"...\n";
 	gcali_stage2.Fit(&fcali_stage2, "R S");
@@ -633,15 +670,145 @@ int main(int argc, char **argv) {
 
 	double *stage2_pars = fcali_stage2.GetParameters();
 	std::cout << "Stage 2 parameters:\n"
-		<< "  t0d1: p0 = " << stage2_pars[0]
+		<< "  t0s:  p0 = " << stage2_pars[0]
 		<< ", p1 = " << stage2_pars[1] << "\n";
 
+	double s1_p0 = stage2_pars[0];
+	double s1_p1 = stage2_pars[1];
+
+	std::cout
+		<< "\n========================================\n"
+		<< "Stage 3: Fit d2-d3 "
+		<< "(2 parameters: d2, d3 fixed)\n"
+		<< "  d3 p0 = " << d3_p0
+		<< ", d3 p1 = " << d3_p1 << "\n"
+		<< "========================================\n";
+
+	std::set<int> stage3_layers = {1};
+	std::set<std::pair<int, int>> stage3_projectile_set;
+	TGraph gcali_stage3;
+	FillGcaliForLayers(
+		cuts, graphs, stage3_layers,
+		gcali_stage3, stage3_projectile_set);
+
+	if (gcali_stage3.GetN() == 0) {
+		std::cerr << "Error: No calibration points "
+			"for stage 3.\n";
+		return 1;
+	}
+	std::cout << "Stage 3 calibration points: "
+		<< gcali_stage3.GetN() << "\n";
+
+	std::vector<std::pair<int, int>> stage3_projectiles(
+		stage3_projectile_set.begin(),
+		stage3_projectile_set.end());
+
+	double stage3_init_params[2] = {0.0, 0.005};
+
+	PidFitFuncFixUpper pid_fit_stage3(
+		stage3_projectiles, config,
+		1, d3_p0, d3_p1);
+	TF1 fcali_stage3(
+		"fcali_stage3", pid_fit_stage3,
+		25000.0, 102000.0, 2);
+	fcali_stage3.SetNpx(10000);
+	for (int i = 0; i < 2; ++i) {
+		fcali_stage3.SetParameter(
+			i, stage3_init_params[i]);
+	}
+	fcali_stage3.SetParLimits(0, -1.0, 1.0);
+	fcali_stage3.SetParLimits(1, 0.0, 0.1);
+
+	std::cout << "Fitting stage 3 with \"R S\"...\n";
+	gcali_stage3.Fit(&fcali_stage3, "R S");
+
+	std::cout << "Stage 3 fit result:\n"
+		<< "  chi2     = "
+		<< fcali_stage3.GetChisquare() << "\n"
+		<< "  ndf      = "
+		<< fcali_stage3.GetNDF() << "\n"
+		<< "  chi2/ndf = "
+		<< fcali_stage3.GetChisquare()
+			/ fcali_stage3.GetNDF() << "\n"
+		<< "  prob     = "
+		<< fcali_stage3.GetProb() << "\n";
+
+	double *stage3_pars = fcali_stage3.GetParameters();
+	std::cout << "Stage 3 parameters:\n"
+		<< "  t0d2: p0 = " << stage3_pars[0]
+		<< ", p1 = " << stage3_pars[1] << "\n";
+
+	double d2_p0 = stage3_pars[0];
+	double d2_p1 = stage3_pars[1];
+
+	std::cout
+		<< "\n========================================\n"
+		<< "Stage 4: Fit d1-d2 "
+		<< "(2 parameters: d1, d2 fixed)\n"
+		<< "  d2 p0 = " << d2_p0
+		<< ", d2 p1 = " << d2_p1 << "\n"
+		<< "========================================\n";
+
+	std::set<int> stage4_layers = {0};
+	std::set<std::pair<int, int>> stage4_projectile_set;
+	TGraph gcali_stage4;
+	FillGcaliForLayers(
+		cuts, graphs, stage4_layers,
+		gcali_stage4, stage4_projectile_set);
+
+	if (gcali_stage4.GetN() == 0) {
+		std::cerr << "Error: No calibration points "
+			"for stage 4.\n";
+		return 1;
+	}
+	std::cout << "Stage 4 calibration points: "
+		<< gcali_stage4.GetN() << "\n";
+
+	std::vector<std::pair<int, int>> stage4_projectiles(
+		stage4_projectile_set.begin(),
+		stage4_projectile_set.end());
+
+	double stage4_init_params[2] = {0.0, 0.002};
+
+	PidFitFuncFixUpper pid_fit_stage4(
+		stage4_projectiles, config,
+		0, d2_p0, d2_p1);
+	TF1 fcali_stage4(
+		"fcali_stage4", pid_fit_stage4,
+		0.0, 25000.0, 2);
+	fcali_stage4.SetNpx(10000);
+	for (int i = 0; i < 2; ++i) {
+		fcali_stage4.SetParameter(
+			i, stage4_init_params[i]);
+	}
+	fcali_stage4.SetParLimits(0, -1.0, 1.0);
+	fcali_stage4.SetParLimits(1, 0.0, 0.1);
+
+	std::cout << "Fitting stage 4 with \"R S\"...\n";
+	gcali_stage4.Fit(&fcali_stage4, "R S");
+
+	std::cout << "Stage 4 fit result:\n"
+		<< "  chi2     = "
+		<< fcali_stage4.GetChisquare() << "\n"
+		<< "  ndf      = "
+		<< fcali_stage4.GetNDF() << "\n"
+		<< "  chi2/ndf = "
+		<< fcali_stage4.GetChisquare()
+			/ fcali_stage4.GetNDF() << "\n"
+		<< "  prob     = "
+		<< fcali_stage4.GetProb() << "\n";
+
+	double *stage4_pars = fcali_stage4.GetParameters();
+	std::cout << "Stage 4 parameters:\n"
+		<< "  t0d1: p0 = " << stage4_pars[0]
+		<< ", p1 = " << stage4_pars[1] << "\n";
+
 	double final_parameters[10] = {
-		stage2_pars[0], stage2_pars[1],
+		stage4_pars[0], stage4_pars[1],
 		d2_p0,          d2_p1,
-		stage1_pars[2], stage1_pars[3],
-		stage1_pars[4], stage1_pars[5],
-		stage1_pars[6], stage1_pars[7]
+		d3_p0,          d3_p1,
+		d4_p0,          d4_p1,
+		s1_p0,          s1_p1
 	};
 
 	std::cout
@@ -729,11 +896,11 @@ int main(int argc, char **argv) {
 				config,
 				opf,
 				TString::Format(
-					"c_%s_v1",
+					"c_%s_v2",
 					th2_names[i]),
 				TString::Format(
 					"%s Calibrated with "
-					"Theory (v1)",
+					"Theory (v2)",
 					brill::kT0LayerPairs[i]
 						.name));
 		}
@@ -744,8 +911,12 @@ int main(int argc, char **argv) {
 	fcali_stage1.Write("fcali_stage1");
 	gcali_stage2.Write("gcali_stage2");
 	fcali_stage2.Write("fcali_stage2");
+	gcali_stage3.Write("gcali_stage3");
+	fcali_stage3.Write("fcali_stage3");
+	gcali_stage4.Write("gcali_stage4");
+	fcali_stage4.Write("fcali_stage4");
 	opf.Close();
 
-	std::cout << "\ncalibrate_t0_v1 done.\n";
+	std::cout << "\ncalibrate_t0_v2 done.\n";
 	return 0;
 }
