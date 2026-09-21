@@ -109,6 +109,9 @@ use = 117
 [[normalize.run]]
 run = 137
 use = 137
+[[normalize.run]]
+run = 159
+use = 159
 
 [[normalize.t0d1.strips]]
 index = 0
@@ -248,7 +251,26 @@ norm_energy = [500.0, 60000.0]
 
 
 [calibration]
-runs = [57, 77, 97, 117, 137]
+
+# Run -> calibration file mapping
+[[calibration.run]]
+run = 57
+use = 57
+[[calibration.run]]
+run = 77
+use = 77
+[[calibration.run]]
+run = 97
+use = 97
+[[calibration.run]]
+run = 117
+use = 117
+[[calibration.run]]
+run = 137
+use = 137
+[[calibration.run]]
+run = 159
+use = 159
 
 [track]
 d2d1_window = [-4.0, 2.0]

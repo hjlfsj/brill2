@@ -234,8 +234,12 @@ TGraph *GenerateTheoryCurve(
 	return curve;
 }
 
-int GetT0CalibrationRun(int run) {
-	return ((run - 57) / 20) * 20 + 57;
+int GetT0CalibrationRun(const AppConfig &config, int run) {
+	int calibrate_run = 0;
+	for (const auto &[start, use] : config.calibration.runs) {
+		if (run >= start) calibrate_run = use;
+	}
+	return calibrate_run;
 }
 
 } // namespace brill

@@ -106,10 +106,10 @@ ingot/ (原始数据)
   │     从 D1 播种，按 track_window 匹配 D2/D3/D4
   │
   ├─── [8] rebuild_t0 ─────────────────────────→ particle/ (T0 粒子重建)
-  │     输入: track/t0_*.root + calibration/t0.txt
+  │     输入: track/t0_*.root + calibration/t0_{run:04d}.txt
   │     ★ T0 能量刻度在此应用：E_cal = p0 + p1 * E_raw
   │
-  └─── [9] calibrate_t0 ───────────────────────→ calibration/t0.txt
+  └─── [9] calibrate_t0 ───────────────────────→ calibration/t0_{run:04d}.txt
         输入: particle/t0_*.root
         基于 PID 拟合产生能量刻度系数
 
@@ -118,7 +118,7 @@ ingot/ (原始数据)
   │     对 TOF 直方图寻峰、高斯拟合，标记 14O/13N/12C
   │
   └─── [11] extract_d_Li6 ─────────────────────→ d_Li6/ (自包含 D6LiEvent)
-        输入: match/t0d{1,2,3,4}_*.root + beam/beam_*.root + track/ppac_*.root + calibration/t0.txt
+        输入: match/t0d{1,2,3,4}_*.root + beam/beam_*.root + track/ppac_*.root + calibration/t0_{run:04d}.txt
         ★ T0 能量刻度在此应用：E_cal = p0 + p1 * E_raw
         ★ 读取 PPAC 径迹和束流分类，一并写入 D6LiEvent
         输出自包含文件，GUI 无需回查原始数据
@@ -129,7 +129,7 @@ ingot/ (原始数据)
         主界面 4 张原始能量相关图 + 分析画布 4 张物理分析图（E-E、E-θ、θ-θ + Lise++ 参考线）
 
   ┌─── [13] GUI_pid ─────────────────────────── (DSSD PID 可视化)
-        ★ 输入: match/t0d{1,2,3,4}_*.root + ingot/t0s_*.root + calibration/t0.txt
+        ★ 输入: match/t0d{1,2,3,4}_*.root + ingot/t0s_*.root + calibration/t0_{run:04d}.txt
         ★ 直接读取 match 文件，应用能量刻度后绘制
         主画布 4 张 hit0 关联图 + 次画布 4 张 hit1 关联图（按需绘制）
         hd 字段表示严格 hit 数（==），主画布用 hit0，次画布用 hit1
@@ -160,13 +160,38 @@ T0 位置 offset 是**迭代**的：标定结果需手动更新到 `config.toml`
 
 | 阶段 | 程序 | 说明 |
 |------|------|------|
-| **标定** | `calibrate_t0` | 基于 PID 的粒子鉴别，拟合每层探测器的能量刻度系数 (p0, p1)，输出 `calibration/t0.txt` |
+| **标定** | `calibrate_t0` | 基于 PID 的粒子鉴别，拟合每层探测器的能量刻度系数 (p0, p1)，输出 `calibration/t0_{run:04d}.txt` |
 | **使用** | `rebuild_t0` | 在粒子重建阶段应用：`E_cal = p0 + p1 * E_raw` |
 | **使用** | `extract_d_Li6` | 在填充直方图前对每个 hit 的能量进行刻度，写入 D6LiEvent |
 | **使用** | `GUI_d_Li6` | 直接读取 D6LiEvent 中已刻度的能量，分析画布额外施加 ppac_valid 和 D1-D2 6Li cut |
 | **使用** | `GUI_pid` | 读取 match 文件，应用 T0 刻度后绘制 PID 关联图 |
 
-T0 能量刻度是**迭代**的：`calibrate_t0` → `rebuild_t0` → `calibrate_t0` 循环，直到刻度系数收敛。`extract_d_Li6` 使用收敛后的刻度系数将能量写入 D6LiEvent，`GUI_d_Li6` 直接读取已刻度的值。
+**刻度文件查找规则**：`config.toml` 中 `[[calibration.run]]` 定义 run→文件的映射：
+
+```toml
+[[calibration.run]]
+run = 57       # run >= 57 时，
+use = 57       #   读取 calibration/t0_0057.txt
+[[calibration.run]]
+run = 77
+use = 77
+[[calibration.run]]
+run = 137
+use = 137
+[[calibration.run]]
+run = 159      # run >= 159 时，
+use = 159      #   读取 calibration/t0_0159.txt
+```
+
+规则：取满足 `run >= 配置run` 的最后一条 `use` 值。同理，**归一化参数**（`match_dssd`、`estimate_normalize` 使用）由 `[[normalize.run]]` 控制：
+
+```toml
+[[normalize.run]]
+run = 159
+use = 159      # run >= 159 时读取 normalize/t0d1_front_t1_0159.txt 等
+```
+
+新增刻度/归一化时只需在 `config.toml` 中添加对应的 `[[calibration.run]]` / `[[normalize.run]]` 条目，无需修改代码。
 
 ### 数据目录一览
 
@@ -177,7 +202,7 @@ T0 能量刻度是**迭代**的：`calibrate_t0` → `rebuild_t0` → `calibrate
 | `track/` | 径迹重建 | `ppac_*.root`, `t0_*.root` |
 | `match/` | DSSD 匹配 | `t0d1_*.root`, `t0d2_*.root`, `t0d3_*.root`, `t0d4_*.root` |
 | `particle/` | 粒子重建 | `t0_*.root` |
-| `calibration/` | 能量刻度 | `t0.txt` |
+| `calibration/` | 能量刻度 | `t0_{run:04d}.txt` |
 | `beam/` | 束流分类 | `beam_*.root` |
 | `d_Li6/` | d+6Li 分析 | `extract_d_Li6_*.root`（自包含 D6LiEvent，31 branch） |
 

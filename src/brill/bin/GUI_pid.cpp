@@ -26,6 +26,9 @@
 #include <TSystem.h>
 #include <TTree.h>
 
+#include "include/energy_calculator/range_energy_calculator.h"
+#include "include/t0/calibrate_t0_utils.h"
+
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -56,6 +59,9 @@ struct GUIContext {
 	TGNumberEntry *hit_d3 = nullptr;
 	TGNumberEntry *hit_d4 = nullptr;
 	TGTextButton *draw_btn = nullptr;
+	TGCheckButton *theory_check = nullptr;
+	std::vector<TGraph*> theory_graphs[4];
+	double t0_thickness_um[5] = {0};
 
 	std::string config_path;
 	std::string match_dir;
@@ -109,15 +115,66 @@ static void RebuildSecHistograms() {
 	cv.h_d4_t0s->SetDirectory(0);
 }
 
+static void RebuildTheoryCurves() {
+	for (int i = 0; i < 4; i++) {
+		for (auto *g : g_ctx.theory_graphs[i]) delete g;
+		g_ctx.theory_graphs[i].clear();
+	}
+
+	int pairs[4][2] = {{0,1}, {1,2}, {2,3}, {3,4}};
+
+	std::string cache_dir = brill::JoinPath(
+		g_ctx.config.workspace, g_ctx.config.paths.energy_calculator);
+
+	for (int p = 0; p < 4; p++) {
+		int si = pairs[p][0];
+		int di = pairs[p][1];
+
+		for (auto &pid : brill::kCommonParticles) {
+			try {
+				std::string cache_path = TString::Format(
+					"%s/si_z%d_a%d.root",
+					cache_dir.c_str(), pid.charge, pid.mass).Data();
+
+				brill::RangeEnergyCalculator rec(
+					pid.charge, pid.mass,
+					brill::SiliconMaterial(),
+					cache_path);
+
+				TGraph *curve = brill::GenerateTheoryCurve(
+					rec,
+					g_ctx.t0_thickness_um[si],
+					g_ctx.t0_thickness_um[di]);
+				if (curve->GetN() > 0) {
+					curve->SetLineColor(kRed);
+					curve->SetLineWidth(1);
+					g_ctx.theory_graphs[p].push_back(curve);
+				} else {
+					delete curve;
+				}
+			} catch (...) {
+				continue;
+			}
+		}
+	}
+}
+
 static void DrawMainCanvas() {
 	auto &cv = g_ctx.main_cv;
 	if (!cv.canvas) return;
 	cv.canvas->Clear();
 	cv.canvas->Divide(2, 2);
-	cv.canvas->cd(1); cv.h_d1_d2->Draw("colz");
-	cv.canvas->cd(2); cv.h_d2_d3->Draw("colz");
-	cv.canvas->cd(3); cv.h_d3_d4->Draw("colz");
-	cv.canvas->cd(4); cv.h_d4_t0s->Draw("colz");
+
+	TH2D *histos[4] = {cv.h_d1_d2, cv.h_d2_d3, cv.h_d3_d4, cv.h_d4_t0s};
+	for (int i = 0; i < 4; i++) {
+		cv.canvas->cd(i + 1);
+		histos[i]->Draw("colz");
+		if (g_ctx.theory_check->IsOn()) {
+			for (auto *g : g_ctx.theory_graphs[i]) {
+				g->Draw("l same");
+			}
+		}
+	}
 	cv.canvas->Modified();
 	cv.canvas->Update();
 }
@@ -136,10 +193,25 @@ static void DrawSecCanvas() {
 		pad_idx++;
 		cv.canvas->cd(pad_idx);
 		histos[i]->Draw("colz");
+		if (g_ctx.theory_check->IsOn()) {
+			for (auto *g : g_ctx.theory_graphs[i]) {
+				g->Draw("l same");
+			}
+		}
 	}
 
 	cv.canvas->Modified();
 	cv.canvas->Update();
+}
+
+static bool InTrackWindow(
+	const brill::DssdMatchEvent &left, int li,
+	const brill::DssdMatchEvent &right, int ri,
+	double max_dist_sq
+) {
+	double dx = right.x[ri] - left.x[li];
+	double dy = right.y[ri] - left.y[li];
+	return dx * dx + dy * dy <= max_dist_sq;
 }
 
 static void OnDraw() {
@@ -158,15 +230,26 @@ static void OnDraw() {
 	printf("  trigger=%s, run=%d-%d, hit=(%d,%d,%d,%d)\n",
 		trigger.c_str(), run_start, run_end, hd1, hd2, hd3, hd4);
 
+	bool precal_mode = (hd1 == -1 && hd2 == -1 && hd3 == -1 && hd4 == -1);
+	double max_dist_sq = g_ctx.config.pre_calibration.max_distance_sq;
+
 	std::string trigger_infix = brill::TriggerInfix(trigger);
 
 	RebuildMainHistograms();
 	RebuildSecHistograms();
+	RebuildTheoryCurves();
 
-	g_ctx.main_cv.h_d1_d2->SetTitle("PID D1-D2 (hit0);D2 Energy (MeV);D1 Energy (MeV)");
-	g_ctx.main_cv.h_d2_d3->SetTitle("PID D2-D3 (hit0);D3 Energy (MeV);D2 Energy (MeV)");
-	g_ctx.main_cv.h_d3_d4->SetTitle("PID D3-D4 (hit0);D4 Energy (MeV);D3 Energy (MeV)");
-	g_ctx.main_cv.h_d4_t0s->SetTitle("PID D4-T0S (hit0);T0S Energy (MeV);D4 Energy (MeV)");
+	if (precal_mode) {
+		g_ctx.main_cv.h_d1_d2->SetTitle("PID D1-D2 (pre-cal hit0);D2 Energy (MeV);D1 Energy (MeV)");
+		g_ctx.main_cv.h_d2_d3->SetTitle("PID D2-D3 (pre-cal hit0);D3 Energy (MeV);D2 Energy (MeV)");
+		g_ctx.main_cv.h_d3_d4->SetTitle("PID D3-D4 (pre-cal hit0);D4 Energy (MeV);D3 Energy (MeV)");
+		g_ctx.main_cv.h_d4_t0s->SetTitle("PID D4-T0S (pre-cal hit0);T0S Energy (MeV);D4 Energy (MeV)");
+	} else {
+		g_ctx.main_cv.h_d1_d2->SetTitle("PID D1-D2 (hit0);D2 Energy (MeV);D1 Energy (MeV)");
+		g_ctx.main_cv.h_d2_d3->SetTitle("PID D2-D3 (hit0);D3 Energy (MeV);D2 Energy (MeV)");
+		g_ctx.main_cv.h_d3_d4->SetTitle("PID D3-D4 (hit0);D4 Energy (MeV);D3 Energy (MeV)");
+		g_ctx.main_cv.h_d4_t0s->SetTitle("PID D4-T0S (hit0);T0S Energy (MeV);D4 Energy (MeV)");
+	}
 
 	const char *d1s = (hd1 >= 2) ? "hit1" : "hit0";
 	const char *d2s = (hd2 >= 2) ? "hit1" : "hit0";
@@ -205,7 +288,7 @@ static void OnDraw() {
 			continue;
 		}
 
-		int calib_run = ((run - 57) / 20) * 20 + 57;
+		int calib_run = brill::GetT0CalibrationRun(g_ctx.config, run);
 		std::string calib_path = TString::Format(
 			"%s/t0_%04d.txt",
 			brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.calibration).c_str(),
@@ -264,45 +347,81 @@ static void OnDraw() {
 				fflush(stdout);
 			}
 
-			bool d1_ok = (d1_ev.num == hd1);
-			bool d2_ok = (d2_ev.num == hd2);
-			bool d3_ok = (d3_ev.num == hd3);
-			bool d4_ok = (d4_ev.num == hd4);
+			if (precal_mode) {
+				bool filled = false;
 
-			if (!d1_ok || !d2_ok || !d3_ok || !d4_ok) {
-				main_skipped++;
-				continue;
+				if (d1_ev.num >= 1 && d2_ev.num >= 1 &&
+					InTrackWindow(d1_ev, 0, d2_ev, 0, max_dist_sq)) {
+					double e1 = brill::CalibrateD6LiEnergy(g_ctx.calib, 0, d1_ev.energy[0]);
+					double e2 = brill::CalibrateD6LiEnergy(g_ctx.calib, 1, d2_ev.energy[0]);
+					g_ctx.main_cv.h_d1_d2->Fill(e2, e1);
+					filled = true;
+				}
+
+				if (d2_ev.num >= 1 && d3_ev.num >= 1 &&
+					InTrackWindow(d2_ev, 0, d3_ev, 0, max_dist_sq)) {
+					double e2 = brill::CalibrateD6LiEnergy(g_ctx.calib, 1, d2_ev.energy[0]);
+					double e3 = brill::CalibrateD6LiEnergy(g_ctx.calib, 2, d3_ev.energy[0]);
+					g_ctx.main_cv.h_d2_d3->Fill(e3, e2);
+					filled = true;
+				}
+
+				if (d3_ev.num >= 1 && d4_ev.num >= 1 &&
+					InTrackWindow(d3_ev, 0, d4_ev, 0, max_dist_sq)) {
+					double e3 = brill::CalibrateD6LiEnergy(g_ctx.calib, 2, d3_ev.energy[0]);
+					double e4 = brill::CalibrateD6LiEnergy(g_ctx.calib, 3, d4_ev.energy[0]);
+					g_ctx.main_cv.h_d3_d4->Fill(e4, e3);
+					filled = true;
+
+					if (t0s_ev.valid && d3_ev.num == 1 && d4_ev.num == 1) {
+						double es = brill::CalibrateD6LiEnergy(g_ctx.calib, 4, (double)t0s_ev.energy);
+						g_ctx.main_cv.h_d4_t0s->Fill(es, e4);
+					}
+				}
+
+				if (filled) main_filled++;
+				else main_skipped++;
+			} else {
+				bool d1_ok = (d1_ev.num == hd1);
+				bool d2_ok = (d2_ev.num == hd2);
+				bool d3_ok = (d3_ev.num == hd3);
+				bool d4_ok = (d4_ev.num == hd4);
+
+				if (!d1_ok || !d2_ok || !d3_ok || !d4_ok) {
+					main_skipped++;
+					continue;
+				}
+
+				main_filled++;
+
+				double e1 = brill::CalibrateD6LiEnergy(g_ctx.calib, 0, d1_ev.energy[0]);
+				double e2 = brill::CalibrateD6LiEnergy(g_ctx.calib, 1, d2_ev.energy[0]);
+				double e3 = brill::CalibrateD6LiEnergy(g_ctx.calib, 2, d3_ev.energy[0]);
+				double e4 = brill::CalibrateD6LiEnergy(g_ctx.calib, 3, d4_ev.energy[0]);
+				double es = t0s_ev.valid ? brill::CalibrateD6LiEnergy(g_ctx.calib, 4, (double)t0s_ev.energy) : 0.0;
+
+				g_ctx.main_cv.h_d1_d2->Fill(e2, e1);
+				g_ctx.main_cv.h_d2_d3->Fill(e3, e2);
+				g_ctx.main_cv.h_d3_d4->Fill(e4, e3);
+				g_ctx.main_cv.h_d4_t0s->Fill(es, e4);
+
+				bool d1_sec = (d1_ev.num >= 2);
+				bool d2_sec = (d2_ev.num >= 2);
+				bool d3_sec = (d3_ev.num >= 2);
+				bool d4_sec = (d4_ev.num >= 2);
+
+				if (d1_sec || d2_sec || d3_sec || d4_sec) sec_events++;
+
+				double e1s = d1_sec ? brill::CalibrateD6LiEnergy(g_ctx.calib, 0, d1_ev.energy[1]) : e1;
+				double e2s = d2_sec ? brill::CalibrateD6LiEnergy(g_ctx.calib, 1, d2_ev.energy[1]) : e2;
+				double e3s = d3_sec ? brill::CalibrateD6LiEnergy(g_ctx.calib, 2, d3_ev.energy[1]) : e3;
+				double e4s = d4_sec ? brill::CalibrateD6LiEnergy(g_ctx.calib, 3, d4_ev.energy[1]) : e4;
+
+				if (d1_sec) g_ctx.sec_cv.h_d1_d2->Fill(e2s, e1s);
+				if (d2_sec) g_ctx.sec_cv.h_d2_d3->Fill(e3s, e2s);
+				if (d3_sec) g_ctx.sec_cv.h_d3_d4->Fill(e4s, e3s);
+				if (d4_sec) g_ctx.sec_cv.h_d4_t0s->Fill(es, e4s);
 			}
-
-			main_filled++;
-
-			double e1 = brill::CalibrateD6LiEnergy(g_ctx.calib, 0, d1_ev.energy[0]);
-			double e2 = brill::CalibrateD6LiEnergy(g_ctx.calib, 1, d2_ev.energy[0]);
-			double e3 = brill::CalibrateD6LiEnergy(g_ctx.calib, 2, d3_ev.energy[0]);
-			double e4 = brill::CalibrateD6LiEnergy(g_ctx.calib, 3, d4_ev.energy[0]);
-			double es = t0s_ev.valid ? brill::CalibrateD6LiEnergy(g_ctx.calib, 4, (double)t0s_ev.energy) : 0.0;
-
-			g_ctx.main_cv.h_d1_d2->Fill(e2, e1);
-			g_ctx.main_cv.h_d2_d3->Fill(e3, e2);
-			g_ctx.main_cv.h_d3_d4->Fill(e4, e3);
-			g_ctx.main_cv.h_d4_t0s->Fill(es, e4);
-
-			bool d1_sec = (d1_ev.num >= 2);
-			bool d2_sec = (d2_ev.num >= 2);
-			bool d3_sec = (d3_ev.num >= 2);
-			bool d4_sec = (d4_ev.num >= 2);
-
-			if (d1_sec || d2_sec || d3_sec || d4_sec) sec_events++;
-
-			double e1s = d1_sec ? brill::CalibrateD6LiEnergy(g_ctx.calib, 0, d1_ev.energy[1]) : e1;
-			double e2s = d2_sec ? brill::CalibrateD6LiEnergy(g_ctx.calib, 1, d2_ev.energy[1]) : e2;
-			double e3s = d3_sec ? brill::CalibrateD6LiEnergy(g_ctx.calib, 2, d3_ev.energy[1]) : e3;
-			double e4s = d4_sec ? brill::CalibrateD6LiEnergy(g_ctx.calib, 3, d4_ev.energy[1]) : e4;
-
-			if (d1_sec) g_ctx.sec_cv.h_d1_d2->Fill(e2s, e1s);
-			if (d2_sec) g_ctx.sec_cv.h_d2_d3->Fill(e3s, e2s);
-			if (d3_sec) g_ctx.sec_cv.h_d3_d4->Fill(e4s, e3s);
-			if (d4_sec) g_ctx.sec_cv.h_d4_t0s->Fill(es, e4s);
 		}
 
 		printf("\r    Run %d: 100%% complete\n", run);
@@ -353,6 +472,12 @@ int main(int argc, char **argv) {
 	}
 	g_ctx.match_dir = brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.match);
 	g_ctx.ingot_dir = brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.ingot);
+
+	const char *layer_names[5] = {"t0d1", "t0d2", "t0d3", "t0d4", "t0s"};
+	for (int i = 0; i < 5; i++) {
+		g_ctx.t0_thickness_um[i] = brill::FindDetectorConfig(
+			g_ctx.config, layer_names[i])->thickness_um;
+	}
 
 	TApplication app("GUI_pid", &argc, argv);
 	gStyle->SetPalette(kRainBow);
@@ -414,8 +539,8 @@ int main(int argc, char **argv) {
 	ctrl_frame->AddFrame(new TGLabel(ctrl_frame, "d1_hit:"),
 		new TGLayoutHints(kLHintsCenterY | kLHintsLeft, 2, 2, 2, 2));
 
-	g_ctx.hit_d1 = new TGNumberEntry(ctrl_frame, -1, 0, 3, TGNumberFormat::kNESInteger,
-		TGNumberFormat::kNEAAnyNumber, TGNumberFormat::kNELLimitMinMax, 0, 7);
+	g_ctx.hit_d1 = new TGNumberEntry(ctrl_frame, -1, -1, 3, TGNumberFormat::kNESInteger,
+		TGNumberFormat::kNEAAnyNumber, TGNumberFormat::kNELLimitMinMax, -1, 7);
 	g_ctx.hit_d1->Resize(60, 22);
 	ctrl_frame->AddFrame(g_ctx.hit_d1,
 		new TGLayoutHints(kLHintsCenterY | kLHintsLeft, 2, 5, 2, 2));
@@ -423,8 +548,8 @@ int main(int argc, char **argv) {
 	ctrl_frame->AddFrame(new TGLabel(ctrl_frame, "d2_hit:"),
 		new TGLayoutHints(kLHintsCenterY | kLHintsLeft, 2, 2, 2, 2));
 
-	g_ctx.hit_d2 = new TGNumberEntry(ctrl_frame, -1, 0, 3, TGNumberFormat::kNESInteger,
-		TGNumberFormat::kNEAAnyNumber, TGNumberFormat::kNELLimitMinMax, 0, 7);
+	g_ctx.hit_d2 = new TGNumberEntry(ctrl_frame, -1, -1, 3, TGNumberFormat::kNESInteger,
+		TGNumberFormat::kNEAAnyNumber, TGNumberFormat::kNELLimitMinMax, -1, 7);
 	g_ctx.hit_d2->Resize(60, 22);
 	ctrl_frame->AddFrame(g_ctx.hit_d2,
 		new TGLayoutHints(kLHintsCenterY | kLHintsLeft, 2, 5, 2, 2));
@@ -432,8 +557,8 @@ int main(int argc, char **argv) {
 	ctrl_frame->AddFrame(new TGLabel(ctrl_frame, "d3_hit:"),
 		new TGLayoutHints(kLHintsCenterY | kLHintsLeft, 2, 2, 2, 2));
 
-	g_ctx.hit_d3 = new TGNumberEntry(ctrl_frame, -1, 0, 3, TGNumberFormat::kNESInteger,
-		TGNumberFormat::kNEAAnyNumber, TGNumberFormat::kNELLimitMinMax, 0, 7);
+	g_ctx.hit_d3 = new TGNumberEntry(ctrl_frame, -1, -1, 3, TGNumberFormat::kNESInteger,
+		TGNumberFormat::kNEAAnyNumber, TGNumberFormat::kNELLimitMinMax, -1, 7);
 	g_ctx.hit_d3->Resize(60, 22);
 	ctrl_frame->AddFrame(g_ctx.hit_d3,
 		new TGLayoutHints(kLHintsCenterY | kLHintsLeft, 2, 5, 2, 2));
@@ -441,8 +566,8 @@ int main(int argc, char **argv) {
 	ctrl_frame->AddFrame(new TGLabel(ctrl_frame, "d4_hit:"),
 		new TGLayoutHints(kLHintsCenterY | kLHintsLeft, 2, 2, 2, 2));
 
-	g_ctx.hit_d4 = new TGNumberEntry(ctrl_frame, -1, 0, 3, TGNumberFormat::kNESInteger,
-		TGNumberFormat::kNEAAnyNumber, TGNumberFormat::kNELLimitMinMax, 0, 7);
+	g_ctx.hit_d4 = new TGNumberEntry(ctrl_frame, -1, -1, 3, TGNumberFormat::kNESInteger,
+		TGNumberFormat::kNEAAnyNumber, TGNumberFormat::kNELLimitMinMax, -1, 7);
 	g_ctx.hit_d4->Resize(60, 22);
 	ctrl_frame->AddFrame(g_ctx.hit_d4,
 		new TGLayoutHints(kLHintsCenterY | kLHintsLeft, 2, 10, 2, 2));
@@ -451,6 +576,10 @@ int main(int argc, char **argv) {
 	g_ctx.draw_btn->Resize(60, 22);
 	g_ctx.draw_btn->SetCommand("g_menu_action = 3;");
 	ctrl_frame->AddFrame(g_ctx.draw_btn,
+		new TGLayoutHints(kLHintsCenterY | kLHintsLeft, 2, 10, 2, 2));
+
+	g_ctx.theory_check = new TGCheckButton(ctrl_frame, "Theory");
+	ctrl_frame->AddFrame(g_ctx.theory_check,
 		new TGLayoutHints(kLHintsCenterY | kLHintsLeft, 2, 2, 2, 2));
 
 	g_ctx.sec_cv.canvas = new TCanvas("canvas_sec", "PID Secondary Hits", 1200, 800);

@@ -58,7 +58,7 @@ struct PreCalibrationConfig {
 };
 
 struct CalibrationConfig {
-	std::vector<int> runs;
+	std::vector<std::pair<int, int>> runs;
 };
 
 struct StraightParticleConfig {
@@ -127,6 +127,8 @@ struct AppConfig {
 };
 
 int LoadConfig(const std::string &path, AppConfig &config);
+
+int GetT0CalibrationRun(const AppConfig &config, int run);
 
 const SquareDetectorConfig *FindDetectorConfig(
 	const AppConfig &config,

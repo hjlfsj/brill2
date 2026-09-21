@@ -82,6 +82,19 @@
 - `trigger=t1` 时：全部读完一次性绘制
 - 终端打印每个 run 的百分比进度（10% 步进）
 
+### Pre-calibration 模式
+
+当四个 hit 选项（d1_hit、d2_hit、d3_hit、d4_hit）均为初始值 `-1` 时，进入 **pre-calibration 模式**：
+
+- **只填主画布的 hit0**，不填次画布
+- **不要求 hit count 严格等于某值**，仅要求 `hit.num >= 1`
+- 使用**径迹窗口匹配**（与 `pre_calibration` 程序的逻辑一致）：
+  - 相邻探测器 hit0 的位置偏差平方和 `dx² + dy²` 不超过 `config.toml → [pre_calibration] max_distance_sq`（默认 4.0 mm²）
+  - D4-T0S 额外要求 `d3.num == 1 && d4.num == 1`
+- 标题标注 `(pre-cal hit0)`
+
+**使用方式**：每个 hit 控件重置到默认值 -1（或手动调到 -1），然后 Draw。
+
 ---
 
 ## 数据流
@@ -93,7 +106,7 @@ match/t0d3_*.root  ├──→ GUI_pid ──→ 主画布 + 次画布
 match/t0d4_*.root  │
 ingot/t0s_*.root  ─┘
         │
-calibration/t0.txt ──→ 能量刻度 (p0 + p1 * E_raw)
+calibration/t0_{run:04d}.txt ──→ 能量刻度 (p0 + p1 * E_raw)
 ```
 
 **能量刻度**：复用 `d_6Li_extract` 库中的 `ReadD6LiCalibration` 和 `CalibrateD6LiEnergy`，刻度系数与 `extract_d_Li6` 完全一致。层映射：
@@ -105,6 +118,8 @@ calibration/t0.txt ──→ 能量刻度 (p0 + p1 * E_raw)
 | 2 | t0d3 |
 | 3 | t0d4 |
 | 4 | t0s |
+
+**刻度文件查找**：由 `config.toml` 中 `[[calibration.run]]` 条目控制，取满足 `run >= 配置run` 的最后一条 `use` 值。详见 [programs.md](./programs.md) 的"T0 能量刻度"章节。
 
 ---
 
@@ -120,4 +135,9 @@ calibration/t0.txt ──→ 能量刻度 (p0 + p1 * E_raw)
 # 次画布 d4-t0s 不绘制，d3-d4 复用 d4 的 hit0
 ./GUI_pid -c config.toml
 # 设置 d1_hit=2, d2_hit=2, d3_hit=2, d4_hit=1 → Draw
+
+# Pre-calibration 模式（所有 hit 为 -1）
+# 只填 hit0，用径迹窗口匹配筛选
+./GUI_pid -c config.toml
+# 所有 hit 控件置为 -1 → Draw
 ```

@@ -122,6 +122,7 @@ target_link_libraries(
 	rebuild_t0
 	PRIVATE
 	config
+	t0_calibrate_utils
 	t0_event
 	particle_event
 	energy_calculator
@@ -132,6 +133,7 @@ target_link_libraries(
 	rebuild_2alpha_2p
 	PRIVATE
 	config
+	t0_calibrate_utils
 	dssd_match_event
 	energy_calculator
 	rebuild_physics
@@ -178,6 +180,7 @@ target_link_libraries(
 	extract_d_Li6
 	PRIVATE
 	config
+	t0_calibrate_utils
 	dssd_match_event
 	ppac_track
 	beam_event
@@ -199,6 +202,7 @@ target_link_libraries(
 	extract_10C_4He
 	PRIVATE
 	config
+	t0_calibrate_utils
 	dssd_match_event
 	ppac_track
 	beam_event
@@ -217,6 +221,7 @@ target_link_libraries(
 	extract_6Li_two4He
 	PRIVATE
 	config
+	t0_calibrate_utils
 	dssd_match_event
 	ppac_track
 	beam_event
@@ -298,6 +303,8 @@ target_link_libraries(
 	dssd_match_event
 	silicon_event
 	d_6Li_extract
+	energy_calculator
+	t0_calibrate_utils
 	ROOT::RIO
 	ROOT::Tree
 	ROOT::Hist

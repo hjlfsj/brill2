@@ -155,13 +155,25 @@ void LoadCalibration(
 	const toml::table &table,
 	CalibrationConfig &calibration
 ) {
-	if (const auto *run_array = table["runs"].as_array()) {
+	if (const auto *run_array = table["run"].as_array()) {
 		for (const auto &run_item : *run_array) {
-			if (auto val = run_item.value<int>()) {
-				calibration.runs.push_back(*val);
-			}
+			const auto *run_table = run_item.as_table();
+			if (!run_table) continue;
+			int start_run = 0;
+			int use_run = 0;
+			LoadDetectorInt(*run_table, "run", start_run);
+			LoadDetectorInt(*run_table, "use", use_run);
+			calibration.runs.push_back(std::make_pair(start_run, use_run));
 		}
 	}
+
+	std::sort(
+		calibration.runs.begin(),
+		calibration.runs.end(),
+		[](const std::pair<int, int>& a, const std::pair<int, int> &b) {
+			return a.first < b.first;
+		}
+	);
 }
 
 void LoadT0(const toml::table &table, T0Config &t0) {

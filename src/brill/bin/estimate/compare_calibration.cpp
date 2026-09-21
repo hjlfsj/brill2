@@ -57,11 +57,14 @@ int main(int argc, char **argv) {
 	}
 
 	if (config.calibration.runs.empty()) {
-		std::cerr << "Error: No calibration.runs configured in config.toml.\n";
+		std::cerr << "Error: No calibration.run configured in config.toml.\n";
 		return 1;
 	}
 
-	const std::vector<int> &runs = config.calibration.runs;
+	std::vector<int> runs;
+	for (const auto &[start, use] : config.calibration.runs) {
+		runs.push_back(use);
+	}
 
 	const int kLayerCount = 5;
 	const char *layer_names[kLayerCount] = {"t0d1", "t0d2", "t0d3", "t0d4", "t0s"};
