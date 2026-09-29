@@ -1,7 +1,9 @@
 #include "include/config.h"
 #include "include/d_6Li/d_6Li_event.h"
 #include "include/Lise++/e_theta.h"
+#include "include/Lise++/target_energy_loss.h"
 #include "include/physics/kinematics.h"
+#include "include/rebuild/nuclear_data.h"
 #include "include/rebuild/rebuild_d_6Li.h"
 #include "include/utils.h"
 #include "external/cxxopts.hpp"
@@ -10,6 +12,7 @@
 #include <TCanvas.h>
 #include <TCutG.h>
 #include <TFile.h>
+#include <TGButton.h>
 #include <TGClient.h>
 #include <TGFileDialog.h>
 #include <TGFrame.h>
@@ -28,6 +31,7 @@
 #include <TTree.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -51,6 +55,13 @@ struct AnalysisCanvas {
 	TH2D *h_theta_theta = nullptr;
 };
 
+struct ExcitationCanvas {
+	TCanvas *canvas = nullptr;
+	TH1D *h_excitation = nullptr;
+	TH1D *h_excitation_10C_mm = nullptr;
+	TH1D *h_excitation_6Li_mm = nullptr;
+};
+
 struct GUIContext {
 	TGMainFrame *main_frame = nullptr;
 	TGStatusBar *status_bar = nullptr;
@@ -62,14 +73,19 @@ struct GUIContext {
 	TGTextButton *btn_draw = nullptr;
 	TGNumberEntry *entry_run_min = nullptr;
 	TGNumberEntry *entry_run_max = nullptr;
+	TGNumberEntry *entry_excitation_bins = nullptr;
+	TGNumberEntry *entry_total_E = nullptr;
+	TGCheckButton *chk_energy_loss = nullptr;
 
 	BeamCanvases bcs;
 	AnalysisCanvas ac;
+	ExcitationCanvas ec;
 
 	std::string current_file;
 	std::string config_path;
 	std::string d_Li6_dir;
 	std::string assets_dir;
+	brill::AppConfig config;
 	std::vector<brill::D6LiEvent> all_events;
 };
 
@@ -157,6 +173,39 @@ static void RebuildAnalysisHistograms() {
 	ac.h_theta_theta->SetDirectory(0);
 }
 
+static void RebuildExcitationHistograms() {
+	auto &ec = g_ctx.ec;
+	if (ec.h_excitation) delete ec.h_excitation;
+	if (ec.h_excitation_10C_mm) delete ec.h_excitation_10C_mm;
+	if (ec.h_excitation_6Li_mm) delete ec.h_excitation_6Li_mm;
+	int nbins = g_ctx.entry_excitation_bins
+		? g_ctx.entry_excitation_bins->GetIntNumber() : 30;
+	if (nbins < 5) nbins = 5;
+	double bin_keV = 30000.0 / nbins;
+	TString bin_label = TString::Format("Counts / %.0f keV", bin_keV);
+
+	ec.h_excitation = new TH1D(
+		"h_excitation",
+		TString::Format("^{10}C Excitation (p-consv, %s);E_{x} (MeV);%s",
+			BeamLabel(), bin_label.Data()),
+		nbins, -10, 20);
+	ec.h_excitation->SetDirectory(0);
+
+	ec.h_excitation_10C_mm = new TH1D(
+		"h_excitation_10C_mm",
+		TString::Format("^{10}C Excitation (^{10}C miss, %s);E_{x} (MeV);%s",
+			BeamLabel(), bin_label.Data()),
+		nbins, -10, 20);
+	ec.h_excitation_10C_mm->SetDirectory(0);
+
+	ec.h_excitation_6Li_mm = new TH1D(
+		"h_excitation_6Li_mm",
+		TString::Format("^{10}C Excitation (^{6}Li miss, %s);E_{x} (MeV);%s",
+			BeamLabel(), bin_label.Data()),
+		nbins, -10, 20);
+	ec.h_excitation_6Li_mm->SetDirectory(0);
+}
+
 static void FillHistograms() {
 	RebuildHistograms();
 
@@ -192,8 +241,18 @@ static void FillHistograms() {
 
 static void FillAnalysisHistograms(TCutG *cut) {
 	RebuildAnalysisHistograms();
+	RebuildExcitationHistograms();
 
 	if (g_ctx.all_events.empty()) return;
+
+	const double m_10C = brill::GetMass(6, 10);
+	const double m_6Li = brill::GetMass(3, 6);
+	const double m_14O = brill::GetMass(8, 14);
+	const double m_d = brill::GetMass(1, 2);
+	const double Q = m_14O + m_d - m_10C - m_6Li;
+
+	brill::TargetEnergyLoss tel_10C(g_ctx.config, 6, 10);
+	brill::TargetEnergyLoss tel_6Li(g_ctx.config, 3, 6);
 
 	int total_events = (int)g_ctx.all_events.size();
 	int passed = 0;
@@ -219,13 +278,108 @@ static void FillAnalysisHistograms(TCutG *cut) {
 		printf("    run=%d  entry=%lld\n", ev.run_number, ev.entry);
 		passed++;
 
-		brill::D6LiKinematics kin = brill::ComputeKinematics(ev);
-		g_ctx.ac.h_E_6Li_E_10C->Fill(kin.E_10C, kin.E_6Li);
-		g_ctx.ac.h_10C_e_theta->Fill(ev.theta_10C, kin.E_10C);
-		g_ctx.ac.h_6Li_e_theta->Fill(ev.theta_6Li, kin.E_6Li);
-		g_ctx.ac.h_theta_theta->Fill(ev.theta_10C, ev.theta_6Li);
-	}
+		double E_10C_raw = ev.e1_10C + ev.e2_10C + ev.e3_10C + ev.e4_10C;
+		double E_6Li_raw = ev.e1_6Li + ev.e2_6Li;
 
+		bool apply_loss = g_ctx.chk_energy_loss
+			? g_ctx.chk_energy_loss->IsOn() : true;
+		double E_10C_corr, E_6Li_corr;
+		if (apply_loss) {
+			double dummy;
+			E_10C_corr = tel_10C.IncidentEnergy(E_10C_raw, ev.theta_10C,
+				brill::TargetType::kCD2, dummy);
+			E_6Li_corr = tel_6Li.IncidentEnergy(E_6Li_raw, ev.theta_6Li,
+				brill::TargetType::kCD2, dummy);
+		} else {
+			E_10C_corr = E_10C_raw;
+			E_6Li_corr = E_6Li_raw;
+		}
+
+		g_ctx.ac.h_E_6Li_E_10C->Fill(E_10C_corr, E_6Li_corr);
+		g_ctx.ac.h_10C_e_theta->Fill(ev.theta_10C, E_10C_corr);
+		g_ctx.ac.h_6Li_e_theta->Fill(ev.theta_6Li, E_6Li_corr);
+		g_ctx.ac.h_theta_theta->Fill(ev.theta_10C, ev.theta_6Li);
+
+		double p_10C = std::sqrt(2.0 * m_10C * E_10C_corr);
+		double p_6Li = std::sqrt(2.0 * m_6Li * E_6Li_corr);
+
+		double sin_10C = std::sin(ev.theta_10C * M_PI / 180.0);
+		double cos_10C = std::cos(ev.theta_10C * M_PI / 180.0);
+		double sin_6Li = std::sin(ev.theta_6Li * M_PI / 180.0);
+		double cos_6Li = std::cos(ev.theta_6Li * M_PI / 180.0);
+
+		double pT_10C = p_10C * sin_10C;
+		double pT_6Li = p_6Li * sin_6Li;
+		// coplanarity: φ_6Li = φ_10C + π → transverse momenta opposite
+		double pT_diff = pT_10C - pT_6Li;
+		double pz_sum  = p_10C * cos_10C + p_6Li * cos_6Li;
+		double p2_14O = pT_diff * pT_diff + pz_sum * pz_sum;
+
+		double E_14O = p2_14O / (2.0 * m_14O);
+		double E_x = E_14O - E_10C_corr - E_6Li_corr + Q;
+
+		double total_E_cut = g_ctx.entry_total_E
+			? g_ctx.entry_total_E->GetNumber() : 0.0;
+		if (E_10C_corr + E_6Li_corr > total_E_cut) {
+			g_ctx.ec.h_excitation->Fill(E_x);
+
+			// use 10C position for φ reference, then stored θ + coplanarity
+			double rho_10C = std::sqrt(
+				(ev.t0d2_10C_x - ev.target_x) * (ev.t0d2_10C_x - ev.target_x) +
+				(ev.t0d2_10C_y - ev.target_y) * (ev.t0d2_10C_y - ev.target_y));
+			double cos_phi = rho_10C > 0
+				? (ev.t0d2_10C_x - ev.target_x) / rho_10C : 1.0;
+			double sin_phi = rho_10C > 0
+				? (ev.t0d2_10C_y - ev.target_y) / rho_10C : 0.0;
+
+			// relativistic momenta from stored θ + coplanarity
+			double E_10C_tot_kin = m_10C + E_10C_corr;
+			double p_rel_10C = std::sqrt(E_10C_tot_kin * E_10C_tot_kin - m_10C * m_10C);
+			double px_10C = p_rel_10C * sin_10C * cos_phi;
+			double py_10C = p_rel_10C * sin_10C * sin_phi;
+			double pz_10C = p_rel_10C * cos_10C;
+
+			double E_6Li_tot_kin = m_6Li + E_6Li_corr;
+			double p_rel_6Li = std::sqrt(E_6Li_tot_kin * E_6Li_tot_kin - m_6Li * m_6Li);
+			double px_6Li = p_rel_6Li * sin_6Li * cos_phi;
+			double py_6Li = p_rel_6Li * sin_6Li * sin_phi;
+			double pz_6Li = p_rel_6Li * cos_6Li;
+
+			double E_14O_tot = m_14O + 35.3 * 14.0;
+			double p_14O_sq = E_14O_tot * E_14O_tot - m_14O * m_14O;
+			double p_beam_mag = std::sqrt(p_14O_sq);
+
+			double bx = ev.dir_x;
+			double by = ev.dir_y;
+			double bz = 1.0;
+			double br = std::sqrt(bx*bx + by*by + bz*bz);
+			double pbx = p_beam_mag * bx / br;
+			double pby = p_beam_mag * by / br;
+			double pbz = p_beam_mag * bz / br;
+
+			double E_6Li_tot = m_6Li + E_6Li_corr;
+			double dE_10C_mm = E_14O_tot + m_d - E_6Li_tot;
+			double dpx_10C = pbx - px_6Li;
+			double dpy_10C = pby - py_6Li;
+			double dpz_10C = pbz - pz_6Li;
+			double dp2_10C = dpx_10C*dpx_10C + dpy_10C*dpy_10C + dpz_10C*dpz_10C;
+			double M_10C_star = std::sqrt(dE_10C_mm * dE_10C_mm - dp2_10C);
+			double E_x_10C_mm = M_10C_star - m_10C;
+
+			double p10_sq_m = px_10C*px_10C + py_10C*py_10C + pz_10C*pz_10C;
+			double dpx_6Li = pbx - px_10C;
+			double dpy_6Li = pby - py_10C;
+			double dpz_6Li = pbz - pz_10C;
+			double dp2_6Li = dpx_6Li*dpx_6Li + dpy_6Li*dpy_6Li + dpz_6Li*dpz_6Li;
+			double E_6Li_recon = std::sqrt(m_6Li * m_6Li + dp2_6Li);
+			double dE_6Li_mm = E_14O_tot + m_d - E_6Li_recon;
+			double M_10C_star_6Li = std::sqrt(dE_6Li_mm * dE_6Li_mm - p10_sq_m);
+			double E_x_6Li_mm = M_10C_star_6Li - m_10C;
+
+			g_ctx.ec.h_excitation_10C_mm->Fill(E_x_10C_mm);
+			g_ctx.ec.h_excitation_6Li_mm->Fill(E_x_6Li_mm);
+		}
+	}
 	printf("\r  Analysis done: %d events, passed=%d (%d%%)        \n",
 		total_events, passed,
 		total_events > 0 ? (int)(passed * 100.0 / total_events) : 0);
@@ -261,28 +415,79 @@ static void DrawAnalysisHistograms() {
 
 	TGraph *ref_10C = brill::LoadEThetaCurve(
 		brill::JoinPath(g_ctx.assets_dir, "14O_d_6Li_0+_e_theta.txt"), "10C");
+	ref_10C->SetLineColor(kGreen + 2);
+	ref_10C->SetLineWidth(2);
 	TGraph *ref_6Li = brill::LoadEThetaCurve(
 		brill::JoinPath(g_ctx.assets_dir, "14O_d_6Li_0+_e_theta.txt"), "6Li");
+	ref_6Li->SetLineColor(kGreen + 2);
+	ref_6Li->SetLineWidth(2);
 	TGraph *ref_theta = brill::LoadThetaThetaCurve(
 		brill::JoinPath(g_ctx.assets_dir, "14O_d_6Li_0+_theta_theta.txt"));
+	ref_theta->SetLineColor(kGreen + 2);
+	ref_theta->SetLineWidth(2);
+
+	TGraph *ref_10C_2p = brill::LoadEThetaCurve(
+		brill::JoinPath(g_ctx.assets_dir, "14O_d_6Li_2+_e_theta.txt"), "10C");
+	ref_10C_2p->SetLineColor(kRed);
+	ref_10C_2p->SetLineStyle(7);
+	ref_10C_2p->SetLineWidth(2);
+	TGraph *ref_6Li_2p = brill::LoadEThetaCurve(
+		brill::JoinPath(g_ctx.assets_dir, "14O_d_6Li_2+_e_theta.txt"), "6Li");
+	ref_6Li_2p->SetLineColor(kRed);
+	ref_6Li_2p->SetLineStyle(7);
+	ref_6Li_2p->SetLineWidth(2);
+	TGraph *ref_theta_2p = brill::LoadThetaThetaCurve(
+		brill::JoinPath(g_ctx.assets_dir, "14O_d_6Li_2+_theta_theta.txt"));
+	ref_theta_2p->SetLineColor(kRed);
+	ref_theta_2p->SetLineStyle(7);
+	ref_theta_2p->SetLineWidth(2);
 
 	ac.canvas->cd(1);
 	ac.h_E_6Li_E_10C->Draw("colz");
 
+	double total_E_line = g_ctx.entry_total_E
+		? g_ctx.entry_total_E->GetNumber() : 0.0;
+	if (total_E_line > 0) {
+		TGraph *g_total = new TGraph(2);
+		g_total->SetPoint(0, total_E_line - 80, 80);
+		g_total->SetPoint(1, total_E_line - 30, 30);
+		g_total->SetLineColor(kRed);
+		g_total->SetLineWidth(2);
+		g_total->Draw("L same");
+	}
+
 	ac.canvas->cd(2);
 	ac.h_10C_e_theta->Draw("colz");
 	ref_10C->Draw("L same");
+	ref_10C_2p->Draw("L same");
 
 	ac.canvas->cd(3);
 	ac.h_6Li_e_theta->Draw("colz");
 	ref_6Li->Draw("L same");
+	ref_6Li_2p->Draw("L same");
 
 	ac.canvas->cd(4);
 	ac.h_theta_theta->Draw("colz");
 	ref_theta->Draw("L same");
+	ref_theta_2p->Draw("L same");
 
 	ac.canvas->Modified();
 	ac.canvas->Update();
+}
+
+static void DrawExcitationHistograms() {
+	auto &ec = g_ctx.ec;
+	if (!ec.canvas) return;
+	ec.canvas->Clear();
+	ec.canvas->Divide(2, 2);
+	ec.canvas->cd(1);
+	ec.h_excitation->Draw();
+	ec.canvas->cd(2);
+	ec.h_excitation_10C_mm->Draw();
+	ec.canvas->cd(3);
+	ec.h_excitation_6Li_mm->Draw();
+	ec.canvas->Modified();
+	ec.canvas->Update();
 }
 
 static void OnBeamChanged() {
@@ -294,6 +499,7 @@ static void OnBeamChanged() {
 	TCutG *cut = brill::LoadCutGFromFile(cut_path);
 	FillAnalysisHistograms(cut);
 	DrawAnalysisHistograms();
+	DrawExcitationHistograms();
 }
 
 static void OnBeamChanged();
@@ -365,6 +571,7 @@ void OnFileOpen() {
 
 	FillAnalysisHistograms(cut);
 	DrawAnalysisHistograms();
+	DrawExcitationHistograms();
 
 	printf("  Done.\n");
 }
@@ -387,8 +594,10 @@ int main(int argc, char **argv) {
 		std::cerr << "Error: Load config failed.\n";
 		return 1;
 	}
+	g_ctx.config = config;
 	g_ctx.d_Li6_dir = brill::JoinPath(config.workspace, config.paths.d_Li6);
 	g_ctx.assets_dir = "assets";
+	brill::SetAssetsPath(config.assets);
 
 	TApplication app("GUI_d_Li6", &argc, argv);
 	gStyle->SetPalette(kRainBow);
@@ -461,6 +670,35 @@ int main(int argc, char **argv) {
 	beam_frame->AddFrame(entry_run_max, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
 	g_ctx.entry_run_max = entry_run_max;
 
+	TGLabel *bins_label = new TGLabel(beam_frame, "  Bins: ");
+	beam_frame->AddFrame(bins_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
+
+	TGNumberEntry *entry_excitation_bins = new TGNumberEntry(beam_frame, 30, 5, -1,
+		TGNumberFormat::kNESInteger,
+		TGNumberFormat::kNEANonNegative,
+		TGNumberFormat::kNELLimitMinMax, 5, 500);
+	TGLabel *bins_label2 = new TGLabel(beam_frame, "/bin");
+	beam_frame->AddFrame(entry_excitation_bins, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+	beam_frame->AddFrame(bins_label2, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+	g_ctx.entry_excitation_bins = entry_excitation_bins;
+
+	TGLabel *total_e_label = new TGLabel(beam_frame, "  E_{10C}+E_{6Li} > ");
+	beam_frame->AddFrame(total_e_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
+
+	TGNumberEntry *entry_total_E = new TGNumberEntry(beam_frame, 0, 5, -1,
+		TGNumberFormat::kNESReal,
+		TGNumberFormat::kNEANonNegative,
+		TGNumberFormat::kNELLimitMinMax, 0, 1000);
+	beam_frame->AddFrame(entry_total_E, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+	TGLabel *total_e_unit = new TGLabel(beam_frame, " MeV");
+	beam_frame->AddFrame(total_e_unit, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+	g_ctx.entry_total_E = entry_total_E;
+
+	TGCheckButton *chk_loss = new TGCheckButton(beam_frame, "Eloss corr.");
+	chk_loss->SetState(kButtonDown);
+	beam_frame->AddFrame(chk_loss, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
+	g_ctx.chk_energy_loss = chk_loss;
+
 	TGTextButton *btn_draw = new TGTextButton(beam_frame, "Draw");
 	btn_draw->SetCommand("g_redraw = true;");
 	beam_frame->AddFrame(btn_draw, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
@@ -474,6 +712,7 @@ int main(int argc, char **argv) {
 	g_ctx.bcs.canvas = embed->GetCanvas();
 
 	g_ctx.ac.canvas = new TCanvas("canvas_analysis", "d+6Li Analysis", 1200, 800);
+	g_ctx.ec.canvas = new TCanvas("canvas_excitation", "10C Excitation Energy", 800, 600);
 
 	TGStatusBar *status_bar = new TGStatusBar(main_frame, 1, 1);
 	main_frame->AddFrame(status_bar, new TGLayoutHints(kLHintsBottom | kLHintsExpandX));

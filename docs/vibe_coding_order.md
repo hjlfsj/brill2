@@ -182,3 +182,16 @@ calibrate_t0.cpp就维持原状吧。复用函数都只给v1使用
 3. 覆盖v0的输出文件
 4. 不变
 5. 并存，可以执行程序命名为calibration_t0_v1
+
+
+
+8.检验束流展宽
+
+- 在estimate目录下，创建检验束流展宽的程序，命名为check_beam_width.cpp
+- 要求和文件夹下的其他程序一样具有可选trigger功能，可选run的功能，以及可选config文件的功能。这个程序只需要单run运行
+- 筛选束流事件：d2_hit = d3_hit = 1, 同时 dx^2 + dy^2 < 4 mm^2. 然后根据 run_number读取刻度系数，给d2,d3的能量进行刻度
+同时要求 （d3_e[0],d2_e[0]）在/home/ribll2026/ribll2026_www/github_code/brill2/src/brill/Cut/cal_d2_d3_14O_beam_cut.C中定义的cut中
+- 运行后保存的文件在workspace/beam/目录下
+- 运行结果：E = d2_e[0] + d3_e[0]
+  1. 以10^n为单位，（默认为6），绘制十组 E的直方图TH1D，（1000，0，1000）,然后10组存进文件中，
+  同时把10组绘制到一个canvas中，并保存下来

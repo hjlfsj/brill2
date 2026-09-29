@@ -85,3 +85,26 @@ target_link_libraries(
 	t0_dssd
 	ROOT::Graf
 )
+
+add_executable(test_target_energy test_target_energy.cpp)
+target_link_libraries(
+	test_target_energy
+	PRIVATE
+	config
+	lise_physics
+	ROOT::Graf
+	ROOT::Gpad
+)
+
+add_executable(check_beam_width check_beam_width.cpp)
+target_link_libraries(
+	check_beam_width
+	PRIVATE
+	config
+	t0_calibrate_utils
+	dssd_match_event
+	ROOT::Graf
+	ROOT::Gpad
+	ROOT::Hist
+	ROOT::Tree
+)

@@ -1,4 +1,15 @@
-# extract_d_Li6 说明文档
+# d+6Li 分析说明文档
+
+## 1. 概述
+
+本项目包含 d+6Li 物理分析的数据提取和 GUI 可视化程序：
+
+- **extract_d_Li6**：从 match、beam、track 文件中提取并刻度数据，生成自包含的 `D6LiEvent` ROOT 文件
+- **GUI_d_Li6**：交互式 GUI，读入 `D6LiEvent` 文件进行物理分析，包括束流筛选、粒子鉴别、能损修正和激发能谱重建
+
+---
+
+## extract_d_Li6 说明文档
 
 ## 1. 概述
 
@@ -183,3 +194,146 @@ calibrate_t0 → calibration/t0.txt ────────────┤
                                          GUI_d_Li6
     (直接读取 D6LiEvent，无需回查任何原始文件)
 ```
+
+---
+
+## GUI_d_Li6 说明文档
+
+### 概述
+
+`GUI_d_Li6` 是 d+6Li 反应的交互式 GUI 物理分析程序，包含三个独立画布。程序通过 `File > Open` 载入 `extract_d_Li6` 生成的 ROOT 文件，支持束流选择、6Li 的 D1-D2 图形 cut 筛选，并在分析方法中集成了 CD₂ 靶能损修正和 ¹⁰C 激发能谱重建。
+
+### 运行方式
+
+```bash
+GUI_d_Li6 -c config.toml
+```
+
+| 参数 | 说明 |
+|------|------|
+| `-c, --config` | 配置文件路径（默认 `config.toml`） |
+| `-h, --help` | 打印帮助信息 |
+
+### GUI 布局
+
+- **顶部菜单栏**：File > Open（打开 ROOT 文件），File > Quit（退出）
+- **束流选择按钮**：All / 14O / 13N / 12C，用于筛选束流成分
+- **Run 范围筛选**：可选，限制加载的 run 号范围（默认加载所有）
+- **三个独立画布**：主嵌入画布 + 两个弹出窗口
+
+### 画布 1：粒子鉴别（2×2 布局）
+
+嵌入在主窗口中的 `TRootEmbeddedCanvas`，展示四张 10C 和 6Li 的能量相关图：
+
+| Pad | 直方图 | 内容 |
+|-----|--------|------|
+| 左上 | `h_e1_10C_e2_10C` | 10C 的 E1-E2 能量相关 |
+| 右上 | `h_e1_6Li_e2_6Li` | 6Li 的 E1-E2 能量相关 |
+| 左下 | `h_e2_10C_e3_10C` | 10C 的 E2-E3 能量相关 |
+| 右下 | `h_e3_10C_e4_10C` | 10C 的 E3-E4 能量相关 |
+
+右侧 6Li 的 E1-E2 图同时叠加 `Cut/cal_d1_d2_6Li_cut.C` 图形 cut。
+
+### 画布 2：物理分析关联（2×2 布局）
+
+弹出窗口 `canvas_analysis`，展示 E-E、E-θ、θ-θ 关联图，并叠加理论曲线：
+
+| Pad | 直方图 | 内容 | 参考线 |
+|-----|--------|------|--------|
+| 左上 | `h_E_6Li_E_10C` | E₁₀C vs E₆Li 二维关联 | — |
+| 右上 | `h_10C_e_theta` | ¹⁰C 能量-角度关联 | `14O_d_6Li_0+_e_theta.txt`（¹⁰C） |
+| 左下 | `h_6Li_e_theta` | ⁶Li 能量-角度关联 | `14O_d_6Li_0+_e_theta.txt`（⁶Li） |
+| 右下 | `h_theta_theta` | θ₁₀C vs θ₆Li | `14O_d_6Li_0+_theta_theta.txt` |
+
+> **能损修正**：此画布中使用的 E₁₀C 和 E₆Li 已通过 CD₂ 靶能损函数补全。具体地，将探测器测得的动能 E 反推至穿出半靶厚（61 µm）之前的入射能量 E₀，考虑粒子出射角 θ 对有效路径长度的影响：
+>
+> ```
+> E₀ = TargetEnergyLoss(Z, A).IncidentEnergy(E, θ, kCD2)
+> E_eff = 61 / cos(θ)  [µm]
+> ```
+
+### 画布 3：¹⁰C 激发能谱（2×2 布局）
+
+弹出窗口 `canvas_excitation`，2×2 布局，第一个 pad 展示 ¹⁰C 的激发能谱：
+
+- **直方图**：`h_excitation`，范围为 -10 到 20 MeV（200 bins）
+- **X 轴**：Eₓ(¹⁰C) (MeV)，**Y 轴**：Counts
+
+其余 3 个 pad 预留待后续使用。
+
+#### 重建方法
+
+利用非相对论运动学和动量守恒重建入射 ¹⁴O 的动能，进而计算 ¹⁰C 的激发能。反应为：
+
+```
+¹⁴O + d → ¹⁰C + ⁶Li    (Q = -8.64 MeV, 吸热反应)
+```
+
+d 靶核在实验室系静止。步骤如下：
+
+1. **动量计算**（非相对论，m = A × 931.5 MeV/c²）：
+
+   ```
+   p₁₀C = sqrt(2 · m₁₀C · E₁₀C_corr)
+   p₆Li = sqrt(2 · m₆Li · E₆Li_corr)
+   ```
+
+2. **方向向量**（从靶点到 D2 位置）：
+
+   ```
+   d₁₀C = normalize(t0d2_10C_x - target_x, t0d2_10C_y - target_y, t0d2_10C_z - 0)
+   d₆Li = normalize(t0d2_6Li_x - target_x, t0d2_6Li_y - target_y, t0d2_6Li_z - 0)
+   ```
+
+3. **动量守恒**（d 静止，p₄ = 0）：
+
+   ```
+   p₁₄O = p₁₀C · d₁₀C + p₆Li · d₆Li
+   E₁₄O = |p₁₄O|² / (2 · m₁₄O)
+   ```
+
+4. **激发能**：
+
+   ```
+   Eₓ = E₁₄O - E₁₀C_corr - E₆Li_corr - Q      (Q = 8.64 MeV)
+   ```
+
+   其中 E₁₀C_corr 和 E₆Li_corr 为 CD₂ 靶修正后的能量。
+
+### 筛选流程
+
+1. **束流筛选**：根据按钮选择，筛选 `is_14O` / `is_13N` / `is_12C`
+2. **PPAC 有效性**：要求 `ppac_valid == true`
+3. **6Li 图形 cut**：要求 (E2₆Li, E1₆Li) 落在 `Cut/cal_d1_d2_6Li_cut.C` 内
+4. **方向向量有效性**：要求 ¹⁰C 和 ⁶Li 的 D2 位置向量长度 > 0
+
+### 编译
+
+在 `src/brill/bin/CMakeLists.txt` 中已添加编译目标：
+
+```cmake
+add_executable(GUI_d_Li6 GUI_d_Li6.cpp)
+target_link_libraries(
+    GUI_d_Li6
+    PRIVATE
+    config
+    d_6Li_event
+    rebuild_physics
+    physics
+    lise_physics
+    ROOT::RIO ROOT::Tree ROOT::Hist ROOT::Graf ROOT::Gpad ROOT::Gui
+)
+```
+
+### 相关文件
+
+| 文件 | 用途 |
+|------|------|
+| `src/brill/bin/GUI_d_Li6.cpp` | GUI 主程序 |
+| `src/brill/include/Lise++/target_energy_loss.h` | CD₂/CH₂ 靶能损计算（TargetEnergyLoss 类） |
+| `src/brill/src/Lise++/target_energy_loss.cpp` | 靶能损函数实现 |
+| `src/brill/include/rebuild/rebuild_d_6Li.h` | ComputeKinematics / LoadCutGFromFile 声明 |
+| `src/brill/src/rebuild/rebuild_d_6Li.cpp` | 运动学计算和 cut 加载实现 |
+| `assets/14O_d_6Li_0+_e_theta.txt` | 基态反应 E-θ 理论曲线 |
+| `assets/14O_d_6Li_0+_theta_theta.txt` | 基态反应 θ-θ 理论曲线 |
+| `src/brill/Cut/cal_d1_d2_6Li_cut.C` | 6Li 的 D1-D2 图形 cut |

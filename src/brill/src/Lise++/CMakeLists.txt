@@ -1,6 +1,7 @@
 add_library(
 	lise_physics
 	e_theta.cpp
+	target_energy_loss.cpp
 )
 target_include_directories(
 	lise_physics
@@ -13,4 +14,5 @@ target_link_libraries(
 	PUBLIC
 	ROOT::Core
 	ROOT::Gpad
+	energy_calculator
 )
