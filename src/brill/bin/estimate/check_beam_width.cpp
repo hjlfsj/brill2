@@ -8,17 +8,24 @@
 
 #include <TCanvas.h>
 #include <TCutG.h>
+#include <TError.h>
 #include <TF1.h>
 #include <TFile.h>
 #include <TGraph.h>
 #include <TH1D.h>
+#include <TH2D.h>
 #include <TLegend.h>
+#include <TPaveText.h>
+#include <TProfile.h>
 #include <TROOT.h>
 #include <TString.h>
 #include <TTree.h>
 
 #include "external/cxxopts.hpp"
 #include "include/config.h"
+#include "include/event/beam/beam_sort.h"
+#include "include/event/ingot/beam_event.h"
+#include "include/event/ppac/ppac_track_event.h"
 #include "include/event/t0/dssd_match_event.h"
 #include "include/utils.h"
 
@@ -90,8 +97,7 @@ Long64_t ProcessEvents(
 			std::fflush(stdout);
 		}
 
-		d2_tree->GetEntry(entry);
-		d3_tree->GetEntry(entry);
+		if (d2_tree->GetEntry(entry) <= 0 || d3_tree->GetEntry(entry) <= 0) continue;
 
 		if (d2_event.num != 1 || d3_event.num != 1) continue;
 
@@ -105,7 +111,7 @@ Long64_t ProcessEvents(
 		if (!beam_cut->IsInside(d3_cal_e, d2_cal_e)) continue;
 
 		double E = d2_cal_e + d3_cal_e;
-		on_pass(E, passed);
+		on_pass(E, passed, entry);
 		++passed;
 
 		if (max_passed > 0 && passed >= max_passed) break;
@@ -299,6 +305,7 @@ int main(int argc, char **argv) {
 
 	const std::string trigger_infix = brill::TriggerInfix(config.trigger);
 	const std::string match_dir = brill::JoinPath(config.workspace, config.paths.match);
+	const std::string ingot_dir = brill::JoinPath(config.workspace, config.paths.ingot);
 
 	TCutG *beam_cut = LoadBeamCut();
 	if (!beam_cut) return 1;
@@ -342,6 +349,84 @@ int main(int argc, char **argv) {
 			return 1;
 		}
 
+		TString beam_path = TString::Format(
+			"%s/beam_%s%04d.root",
+			ingot_dir.c_str(),
+			trigger_infix.c_str(),
+			run
+		);
+		if (!std::filesystem::exists(beam_path.Data())) {
+			std::cerr << "Error: beam file not found: " << beam_path << "\n";
+			d2_file->Close();
+			d3_file->Close();
+			delete d2_file;
+			delete d3_file;
+			return 1;
+		}
+		TFile beam_file(beam_path, "read");
+		TTree *beam_tree = static_cast<TTree*>(beam_file.Get("tree"));
+		if (!beam_tree) {
+			std::cerr << "Error: Get tree from " << beam_path << " failed.\n";
+			d2_file->Close();
+			d3_file->Close();
+			delete d2_file;
+			delete d3_file;
+			return 1;
+		}
+		brill::BeamEvent beam_event;
+		brill::SetupInput(beam_tree, beam_event);
+
+		TString sorted_beam_path = TString::Format(
+			"%s/beam_%s%04d.root",
+			output_dir.c_str(),
+			trigger_infix.c_str(),
+			run
+		);
+		if (!std::filesystem::exists(sorted_beam_path.Data())) {
+			std::cerr << "Error: sorted beam file not found: " << sorted_beam_path << "\n";
+			d2_file->Close();
+			d3_file->Close();
+			delete d2_file;
+			delete d3_file;
+			return 1;
+		}
+		TFile sorted_beam_file(sorted_beam_path, "read");
+		TTree *sorted_beam_tree = static_cast<TTree*>(sorted_beam_file.Get("tree"));
+		if (!sorted_beam_tree) {
+			std::cerr << "Error: Get tree from " << sorted_beam_path << " failed.\n";
+			d2_file->Close();
+			d3_file->Close();
+			delete d2_file;
+			delete d3_file;
+			return 1;
+		}
+		bool v_14O = false;
+		bool v_13N = false;
+		bool v_12C = false;
+		brill::SetupInputSortBeamTree(sorted_beam_tree, v_14O, v_13N, v_12C);
+
+		const std::string track_dir = brill::JoinPath(config.workspace, config.paths.track);
+		TString ppac_track_path = TString::Format(
+			"%s/ppac_%s%04d.root",
+			track_dir.c_str(),
+			trigger_infix.c_str(),
+			run
+		);
+		TFile ppac_file(ppac_track_path, "read");
+		TTree *ppac_tree = nullptr;
+		brill::PpacTrackEvent ppac_track;
+		bool has_ppac = false;
+		if (std::filesystem::exists(ppac_track_path.Data())) {
+			ppac_tree = static_cast<TTree*>(ppac_file.Get("tree"));
+			if (ppac_tree) {
+				brill::SetupInput(ppac_tree, ppac_track);
+				has_ppac = true;
+			}
+		}
+		if (!has_ppac) {
+			std::printf("Warning: PPAC track file not found, skipping PPAC2.\n");
+		}
+
 		int calib_run = brill::GetT0CalibrationRun(config, run);
 		const std::string calibration_path = TString::Format(
 			"%s/t0_%04d.txt",
@@ -373,19 +458,88 @@ int main(int argc, char **argv) {
 			h_groups[g]->SetLineColor(g + 1);
 		}
 
+		TH2D *h_E_vs_tof[kMaxGroups] = {nullptr};
+		for (int g = 0; g < kMaxGroups; ++g) {
+			h_E_vs_tof[g] = new TH2D(
+				TString::Format("h_E_vs_tof_group%d", g),
+				TString::Format("E vs TOF group %d (10^{%d} evts);E (MeV);TOF;Counts", g, group_power),
+				500, 450.0, 500.0,
+				400, 50.0, 70.0
+			);
+			h_E_vs_tof[g]->SetDirectory(0);
+		}
+
+		TGraph *g_tof_raw[kMaxGroups] = {nullptr};
+		for (int g = 0; g < kMaxGroups; ++g) {
+			g_tof_raw[g] = new TGraph();
+		}
+
+		TH2D *h_ppac2_x_vs_E = new TH2D(
+			"h_ppac2_x_vs_E", "PPAC2 x vs E (group 1);x (mm);E (MeV)",
+			600, -30.0, 30.0,
+			500, 450.0, 500.0
+		);
+		h_ppac2_x_vs_E->SetDirectory(0);
+
+		TH2D *h_ppac2_y_vs_E = new TH2D(
+			"h_ppac2_y_vs_E", "PPAC2 y vs E (group 1);y (mm);E (MeV)",
+			600, -30.0, 30.0,
+			500, 450.0, 500.0
+		);
+		h_ppac2_y_vs_E->SetDirectory(0);
+
+		TH2D *h_dir_x_vs_E = new TH2D(
+			"h_dir_x_vs_E", "Track dir_x vs E (group 1);dir_x (rad);E (MeV)",
+			1000, -0.02, 0.02,
+			500, 450.0, 500.0
+		);
+		h_dir_x_vs_E->SetDirectory(0);
+
+		TH2D *h_dir_y_vs_E = new TH2D(
+			"h_dir_y_vs_E", "Track dir_y vs E (group 1);dir_y (rad);E (MeV)",
+			1000, -0.02, 0.02,
+			500, 450.0, 500.0
+		);
+		h_dir_y_vs_E->SetDirectory(0);
+
 		std::printf("Checking beam width   0%%");
 		std::fflush(stdout);
+		int saved_ignore_level = gErrorIgnoreLevel;
+		gErrorIgnoreLevel = kBreak;
 		Long64_t passed_count = ProcessEvents(
 			d2_tree, d3_tree, d2_event, d3_event,
 			calibration, beam_cut,
 			kMaxGroups * group_size,
-			[&](double E, Long64_t passed_index) {
+			[&](double E, Long64_t passed_index, Long64_t entry) {
 				int group = static_cast<int>(passed_index / group_size);
 				if (group >= 0 && group < kMaxGroups) {
 					h_groups[group]->Fill(E);
 				}
+				if (entry < beam_tree->GetEntries()) {
+					beam_tree->GetEntry(entry);
+				}
+				if (entry < sorted_beam_tree->GetEntries()) {
+					sorted_beam_tree->GetEntry(entry);
+				}
+				if (beam_event.valid && v_14O && group >= 0 && group < kMaxGroups) {
+					h_E_vs_tof[group]->Fill(E, beam_event.tof);
+					g_tof_raw[group]->SetPoint(
+						g_tof_raw[group]->GetN(),
+						E, beam_event.tof
+					);
+				}
+				if (has_ppac && entry < ppac_tree->GetEntries()) {
+					ppac_tree->GetEntry(entry);
+					if (group == 1 && ppac_track.valid) {
+						h_ppac2_x_vs_E->Fill(ppac_track.ppac_x[2], E);
+						h_ppac2_y_vs_E->Fill(ppac_track.ppac_y[2], E);
+						h_dir_x_vs_E->Fill(ppac_track.dir_x, E);
+						h_dir_y_vs_E->Fill(ppac_track.dir_y, E);
+					}
+				}
 			}
 		);
+		gErrorIgnoreLevel = saved_ignore_level;
 		std::printf("Passed events: %lld (in %d groups of 10^%d)\n",
 			passed_count,
 			std::min(kMaxGroups, static_cast<int>(passed_count / group_size) + 1),
@@ -395,6 +549,9 @@ int main(int argc, char **argv) {
 		d3_file->Close();
 		delete d2_file;
 		delete d3_file;
+		beam_file.Close();
+		sorted_beam_file.Close();
+		ppac_file.Close();
 
 		TCanvas canvas("c_beam_width", "Beam Energy Width Check", 1400, 800);
 		TLegend legend(0.75, 0.65, 0.90, 0.90);
@@ -421,7 +578,12 @@ int main(int argc, char **argv) {
 		canvas.Write();
 		for (int g = 0; g < kMaxGroups; ++g) {
 			h_groups[g]->Write();
+			h_E_vs_tof[g]->Write();
 		}
+		h_ppac2_x_vs_E->Write();
+		h_ppac2_y_vs_E->Write();
+		h_dir_x_vs_E->Write();
+		h_dir_y_vs_E->Write();
 
 		std::vector<TH1D*> h_vec;
 		std::vector<double> x_vals;
@@ -442,6 +604,75 @@ int main(int argc, char **argv) {
 			} else {
 				std::printf("  Group %d: fit failed\n", static_cast<int>(x_vals[i]));
 			}
+		}
+
+		std::printf("\nE-vs-TOF linear fit (tof = k*E + b, +/-3sigma of peak):\n");
+		for (size_t i = 0; i < fit_results.size(); ++i) {
+			if (!fit_results[i].valid) {
+				std::printf("  Group %d: skipped (Gaussian fit failed)\n",
+					static_cast<int>(x_vals[i]));
+				continue;
+			}
+			int g = static_cast<int>(x_vals[i]);
+			if (!h_E_vs_tof[g] || h_E_vs_tof[g]->GetEntries() == 0) continue;
+
+			double sigma = fit_results[i].fwhm / 2.355;
+			double E_min = fit_results[i].peak - 1.5 * sigma;
+			double E_max = fit_results[i].peak + 1.5 * sigma;
+
+			if (!g_tof_raw[g] || g_tof_raw[g]->GetN() < 10) {
+				std::printf("  Group %d: skipped (too few TOF points: %d)\n",
+					g, g_tof_raw[g] ? g_tof_raw[g]->GetN() : 0);
+				continue;
+			}
+
+			TF1 *lin_fit = new TF1(
+				TString::Format("lin_fit_g%d", g),
+				"[0] + [1]*x",
+				E_min, E_max
+			);
+			int fit_status = g_tof_raw[g]->Fit(lin_fit, "QR+ ROB=1.0");
+
+			if (fit_status != 0) {
+				std::printf("  Group %d: linear fit failed (status=%d)\n",
+					g, fit_status);
+				continue;
+			}
+
+			double k = lin_fit->GetParameter(1);
+			double b = lin_fit->GetParameter(0);
+			double k_err = lin_fit->GetParError(1);
+			double b_err = lin_fit->GetParError(0);
+
+			std::printf("  Group %d: k = %.4f +/- %.4f, b = %.4f +/- %.4f\n",
+				g, k, k_err, b, b_err);
+
+			TCanvas c_2d(
+				TString::Format("c_E_vs_tof_g%d", g),
+				TString::Format("E vs TOF Group %d (10^{%d} evts)", g, group_power),
+				800, 600
+			);
+			h_E_vs_tof[g]->Draw("colz");
+			lin_fit->SetLineColor(kRed);
+			lin_fit->SetLineWidth(2);
+			lin_fit->Draw("same");
+
+			TPaveText *pt = new TPaveText(0.15, 0.75, 0.50, 0.90, "NDC");
+			pt->AddText(TString::Format("tof = k*E + b"));
+			pt->AddText(TString::Format("k = %.4f #pm %.4f", k, k_err));
+			pt->AddText(TString::Format("b = %.4f #pm %.4f", b, b_err));
+			pt->AddText(TString::Format("#pm1.5#sigma: [%.2f, %.2f] MeV", E_min, E_max));
+			pt->SetFillColor(0);
+			pt->SetBorderSize(0);
+			pt->SetTextFont(42);
+			pt->Draw();
+
+			output_file.cd();
+			c_2d.Write();
+		}
+
+		for (int g = 0; g < kMaxGroups; ++g) {
+			delete g_tof_raw[g];
 		}
 
 	} else {
@@ -510,8 +741,9 @@ int main(int argc, char **argv) {
 				d2_tree, d3_tree, d2_event, d3_event,
 				calibration, beam_cut,
 				group_size,
-				[&](double E, Long64_t passed_index) {
+				[&](double E, Long64_t passed_index, Long64_t entry) {
 					(void)passed_index;
+					(void)entry;
 					h->Fill(E);
 				}
 			);

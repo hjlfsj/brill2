@@ -279,6 +279,7 @@ target_link_libraries(
 	ROOT::Graf
 	ROOT::Gpad
 	ROOT::Gui
+	ROOT::Physics
 )
 
 add_executable(sort_beam sort_beam.cpp)

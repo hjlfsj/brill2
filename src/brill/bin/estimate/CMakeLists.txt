@@ -102,6 +102,24 @@ target_link_libraries(
 	PRIVATE
 	config
 	t0_calibrate_utils
+	beam_event
+	beam_sort
+	ppac_track
+	dssd_match_event
+	ROOT::Graf
+	ROOT::Gpad
+	ROOT::Hist
+	ROOT::Tree
+)
+
+add_executable(check_tof_and_beam check_tof_and_beam.cpp)
+target_link_libraries(
+	check_tof_and_beam
+	PRIVATE
+	config
+	t0_calibrate_utils
+	beam_event
+	beam_sort
 	dssd_match_event
 	ROOT::Graf
 	ROOT::Gpad

@@ -25,6 +25,7 @@
 #include <TH2D.h>
 #include <TPad.h>
 #include <TRootEmbeddedCanvas.h>
+#include <TLorentzVector.h>
 #include <TString.h>
 #include <TStyle.h>
 #include <TSystem.h>
@@ -60,6 +61,7 @@ struct ExcitationCanvas {
 	TH1D *h_excitation = nullptr;
 	TH1D *h_excitation_10C_mm = nullptr;
 	TH1D *h_excitation_6Li_mm = nullptr;
+	TH1D *h_excitation_invmass = nullptr;
 };
 
 struct GUIContext {
@@ -178,6 +180,7 @@ static void RebuildExcitationHistograms() {
 	if (ec.h_excitation) delete ec.h_excitation;
 	if (ec.h_excitation_10C_mm) delete ec.h_excitation_10C_mm;
 	if (ec.h_excitation_6Li_mm) delete ec.h_excitation_6Li_mm;
+	if (ec.h_excitation_invmass) delete ec.h_excitation_invmass;
 	int nbins = g_ctx.entry_excitation_bins
 		? g_ctx.entry_excitation_bins->GetIntNumber() : 30;
 	if (nbins < 5) nbins = 5;
@@ -204,6 +207,13 @@ static void RebuildExcitationHistograms() {
 			BeamLabel(), bin_label.Data()),
 		nbins, -10, 20);
 	ec.h_excitation_6Li_mm->SetDirectory(0);
+
+	ec.h_excitation_invmass = new TH1D(
+		"h_excitation_invmass",
+		TString::Format("^{10}C Excitation (inv.mass, %s);E_{x} (MeV);%s",
+			BeamLabel(), bin_label.Data()),
+		nbins, -10, 20);
+	ec.h_excitation_invmass->SetDirectory(0);
 }
 
 static void FillHistograms() {
@@ -378,6 +388,17 @@ static void FillAnalysisHistograms(TCutG *cut) {
 
 			g_ctx.ec.h_excitation_10C_mm->Fill(E_x_10C_mm);
 			g_ctx.ec.h_excitation_6Li_mm->Fill(E_x_6Li_mm);
+
+			TLorentzVector P10C(px_10C, py_10C, pz_10C, E_10C_tot_kin);
+			TLorentzVector P6Li(px_6Li, py_6Li, pz_6Li, E_6Li_tot_kin);
+			TVector3 p14O = P10C.Vect() + P6Li.Vect();
+			double E14O_reco = std::sqrt(p14O.Mag2() + m_14O * m_14O);
+			TLorentzVector P14O(p14O, E14O_reco);
+			TLorentzVector Pd(0, 0, 0, m_d);
+			TLorentzVector P10Cstar = P14O + Pd - P6Li;
+			double Ex = P10Cstar.M() - m_10C;
+
+			g_ctx.ec.h_excitation_invmass->Fill(Ex);
 		}
 	}
 	printf("\r  Analysis done: %d events, passed=%d (%d%%)        \n",
@@ -486,6 +507,8 @@ static void DrawExcitationHistograms() {
 	ec.h_excitation_10C_mm->Draw();
 	ec.canvas->cd(3);
 	ec.h_excitation_6Li_mm->Draw();
+	ec.canvas->cd(4);
+	ec.h_excitation_invmass->Draw();
 	ec.canvas->Modified();
 	ec.canvas->Update();
 }
