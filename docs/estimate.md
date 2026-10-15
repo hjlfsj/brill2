@@ -292,7 +292,7 @@ ingot/ (硅 + CsI)
 
 ### 功能概述
 
-1. 对 d2/d3 能量进行刻度，筛选 14O 束流事件
+1. 对 d1/d2/d3 能量进行刻度，筛选 14O 束流事件
 2. 收集最多 **1e6** 个满足条件的事件
 3. 对束流能量一维谱进行 Gaussian 拟合，得到中心值 **$E_0$**
 4. 对 TOF 一维谱进行 Gaussian 拟合，得到中心值 **$t_0$**
@@ -309,15 +309,29 @@ ingot/ (硅 + CsI)
 | $L$ | $17000\ \mathrm{mm}$（可通过 `--distance` 指定） | TOF 飞行距离 |
 | $c$ | $299.792458\ \mathrm{mm/ns}$ | 真空中光速 |
 
-#### Step 1: 能量刻度
+#### Step 1: 能量刻度与能损修正
 
-读取 `<workspace>/<calibration>/t0_<calib_run>.txt` 中的刻度参数 $(p_0, p_1)$，对 d2 (layer=1)、d3 (layer=2) 的原始能量进行线性刻度：
+读取 `<workspace>/<calibration>/t0_<calib_run>.txt` 中的刻度参数 $(p_0, p_1)$，对 d1 (layer=0)、d2 (layer=1)、d3 (layer=2) 的原始能量进行线性刻度：
 
 $$
-E_{\text{cal}, \ell} = p_0^{(\ell)} + p_1^{(\ell)} \cdot E_{\text{raw}, \ell}, \quad \ell \in \{1, 2\}
+E_{\text{cal}, \ell} = p_0^{(\ell)} + p_1^{(\ell)} \cdot E_{\text{raw}, \ell}, \quad \ell \in \{0, 1, 2\}
 $$
 
-总沉积能量 $E = E_{\text{cal},1} + E_{\text{cal},2}$，此即 14O 在 T0 中的动能。
+d1+d2+d3 沉积能量 $E_{\text{meas}} = E_{\text{cal},0} + E_{\text{cal},1} + E_{\text{cal},2}$。
+
+束流实际路径为：**CD₂靶 (121.7μm)** → **d1 (68μm Si)** → d2 → d3。d1、d2、d3 三层均已实测能量，因此 $E_{\text{meas}}$ 近似为 d1 入射面（即 CD₂-Si 界面）处的动能。只需补全 CD₂ 靶中的能损，即可得到入射束流动能 $E$。
+
+使用 catima 库构建 CD₂ 材料的 `RangeEnergyCalculator`（14O, Z=8, A=14）：
+
+$$
+R_{\text{CD}_2}(E_{\text{meas}}) \xrightarrow{+121.7\ \mu\text{m}} R_{\text{target}} \xrightarrow{\text{Energy}} E
+$$
+
+其中 CD₂ 材料参数：(C: Z=6, A=12, stoi=1) + (D: Z=1, A=2, stoi=2)，密度 $0.79867\ \mathrm{g/cm^3}$。
+
+| 介质 | 厚度 (μm) | 材料 |
+|------|-----------|------|
+| CD₂ 靶 | 121.7 | $(^{12}\text{C}^2\text{H}_2)_n$ |
 
 ---
 
@@ -397,7 +411,17 @@ $$
 
 ---
 
-#### Step 6: 参数汇总
+#### Step 6: 门控分析
+
+为研究 $\Delta E$ 和 $\Delta t$ 的来源，进行互斥门控：
+
+**TOF-gated E**：以 $t_0 \pm 0.25\sigma_t$ 筛选事件，绘制 E 谱并 Gaussian 拟合，得到门控后 $E_0^{\text{gated}}$ 和 $\sigma_E^{\text{gated}}$。
+
+**E-gated TOF**：以 $E_0 \pm 0.25\sigma_E$ 筛选事件，绘制 TOF 谱并 Gaussian 拟合，得到门控后 $\sigma_t^{\text{gated}}$。
+
+---
+
+#### Step 7: 参数汇总
 
 | 参数 | 含义 | 来源 |
 |------|------|------|
@@ -422,6 +446,7 @@ $$
 
 | 文件 | 路径 | 内容 |
 |------|------|------|
+| `t0d1_<_run>.root` | `config.paths.match` | T0 D1 层匹配后数据 |
 | `t0d2_<_run>.root` | `config.paths.match` | T0 D2 层匹配后数据 |
 | `t0d3_<_run>.root` | `config.paths.match` | T0 D3 层匹配后数据 |
 | `beam_<_run>.root` | `config.paths.ingot` | ingot 束流 TOF 数据 |
@@ -430,8 +455,10 @@ $$
 
 ### 筛选逻辑
 
-- 与 `check_beam_width` 相同的基础筛选
-- 额外要求：`beam_event.valid == true` 且粒子为 14O（`v_14O == true`）
+- d1、d2、d3 各只有 1 个 hit（`num == 1`）
+- d3 与 d1 hit 位置差满足 $dx^2 + dy^2 < 4$（欧氏距离 $< 2\ \mathrm{mm}$）
+- 刻度后的 d2、d3 能量落入 `cal_d2_d3_14O_beam_cut` TCutG 切割区域内
+- `beam_event.valid == true` 且粒子为 14O（`v_14O == true`）
 - 最多收集 1e6 个事件
 
 ### 输出
@@ -443,9 +470,27 @@ $$
 | `h_beam_E` | 束流能量一维谱 + Gaussian 拟合 |
 | `h_tof` | TOF 一维谱 + Gaussian 拟合 |
 | `h_E_vs_tof` | E vs TOF 二维关联图 + 理论红线 |
+| `h_beam_E_tof_gated` | TOF 门控（±0.25σ）下的 E 一维谱 + Gaussian 拟合 |
+| `h_tof_E_gated` | E 门控（±0.25σ）下的 TOF 一维谱 + Gaussian 拟合 |
 | `c_E` | 能谱 TCanvas |
 | `c_tof` | TOF TCanvas |
 | `c_2d` | E-vs-TOF + 理论曲线 TCanvas，标注 $E_0$、$t_0$、$\Delta t$ |
+| `c_E_tof_gated` | TOF 门控 E 谱 TCanvas |
+| `c_tof_E_gated` | E 门控 TOF 谱 TCanvas |
+
+输出参数文件：`<workspace>/<config.paths.beam>/check_tof_and_beam_<run>.txt`
+
+包含五个空格分隔的浮点数（每行一份，首行为注释头）：
+
+| 列 | 含义 |
+|----|------|
+| $E_0$ | 束流动能中心值 (MeV) |
+| $\sigma_E$ | 能量宽度 (MeV) |
+| $t_0$ | TOF 中心值 (ns) |
+| $\sigma_t$ | TOF 宽度 (ns) |
+| $\Delta t$ | TOF 测量偏置 (ns) |
+
+可通过 `dt` 和实测 `tof` 反推能量：$E = mc^2(\gamma - 1)$，其中 $\beta = L / ((t_{\text{meas}} - \Delta t) \cdot c)$。
 
 ### 使用示例
 

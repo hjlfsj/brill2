@@ -11,9 +11,41 @@
 #include <TLatex.h>
 #include <TCanvas.h>
 
+#include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
+
+namespace {
+
+constexpr double k14OMass = 13044.84;
+constexpr double kLightSpeed = 299.792458;
+constexpr double kTofDistance = 17000.0;
+
+double ReadDtFromFile(const std::string &path) {
+	std::ifstream fin(path);
+	if (!fin.good()) return 0.0;
+	std::string line;
+	std::getline(fin, line);
+	double dummy, dt = 0.0;
+	fin >> dummy >> dummy >> dummy >> dummy >> dt;
+	return dt;
+}
+
+double TofToEnergy(double tof, double dt) {
+	double t_corr = tof - dt;
+	if (t_corr <= 0.0) return -1.0;
+	double v = kTofDistance / t_corr;
+	double beta = v / kLightSpeed;
+	double beta2 = beta * beta;
+	if (beta2 >= 1.0) return -1.0;
+	double gamma = 1.0 / std::sqrt(1.0 - beta2);
+	return k14OMass * (gamma - 1.0);
+}
+
+} // namespace
 
 int main(int argc, char **argv) {
 	cxxopts::Options options("sort_beam", "Sort beam by TOF peaks");
@@ -168,11 +200,26 @@ int main(int argc, char **argv) {
 
 	c1->Write();
 
+	TString tof_calib_path = TString::Format("%s/check_tof_and_beam_%04d.txt",
+		output_dir.c_str(), run);
+	double dt = ReadDtFromFile(tof_calib_path.Data());
+	if (dt != 0.0) {
+		printf("TOF calibration loaded from %s: dt = %.6f ns\n",
+			tof_calib_path.Data(), dt);
+	} else {
+		printf("Warning: TOF calibration file not found: %s (E will not be computed)\n",
+			tof_calib_path.Data());
+	}
+
 	TTree *output_tree = new TTree("tree", "sorted beam");
 	bool v_14O = false;
 	bool v_13N = false;
 	bool v_12C = false;
+	double tof_val = 0.0;
+	double E = -1.0;
 	brill::SetupOutputSortBeamTree(output_tree, v_14O, v_13N, v_12C);
+	output_tree->Branch("tof", &tof_val, "tof/D");
+	output_tree->Branch("E", &E, "E/D");
 
 	brill::BeamEvent beam_event;
 	brill::SetupInput(beam_tree, beam_event);
@@ -190,6 +237,13 @@ int main(int argc, char **argv) {
 		beam_tree->GetEntry(i);
 
 		brill::ClassifyBeam(beam_event.tof, beam_event.valid, sort_result, v_14O, v_13N, v_12C);
+
+		tof_val = beam_event.tof;
+		if (v_14O && dt != 0.0) {
+			E = TofToEnergy(tof_val, dt);
+		} else {
+			E = -1.0;
+		}
 
 		output_tree->Fill();
 	}

@@ -121,6 +121,7 @@ target_link_libraries(
 	beam_event
 	beam_sort
 	dssd_match_event
+	lise_physics
 	ROOT::Graf
 	ROOT::Gpad
 	ROOT::Hist

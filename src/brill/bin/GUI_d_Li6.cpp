@@ -1,7 +1,7 @@
 #include "include/config.h"
 #include "include/d_6Li/d_6Li_event.h"
+#include "include/energy_calculator/range_energy_calculator.h"
 #include "include/Lise++/e_theta.h"
-#include "include/Lise++/target_energy_loss.h"
 #include "include/physics/kinematics.h"
 #include "include/rebuild/nuclear_data.h"
 #include "include/rebuild/rebuild_d_6Li.h"
@@ -37,6 +37,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 struct BeamCanvases {
@@ -58,10 +59,9 @@ struct AnalysisCanvas {
 
 struct ExcitationCanvas {
 	TCanvas *canvas = nullptr;
-	TH1D *h_excitation = nullptr;
-	TH1D *h_excitation_10C_mm = nullptr;
-	TH1D *h_excitation_6Li_mm = nullptr;
+	TH1D *h_excitation_mm = nullptr;
 	TH1D *h_excitation_invmass = nullptr;
+	TH1D *h_excitation_mm_fixed = nullptr;
 };
 
 struct GUIContext {
@@ -76,8 +76,7 @@ struct GUIContext {
 	TGNumberEntry *entry_run_min = nullptr;
 	TGNumberEntry *entry_run_max = nullptr;
 	TGNumberEntry *entry_excitation_bins = nullptr;
-	TGNumberEntry *entry_total_E = nullptr;
-	TGCheckButton *chk_energy_loss = nullptr;
+	TGNumberEntry *entry_z = nullptr;
 
 	BeamCanvases bcs;
 	AnalysisCanvas ac;
@@ -86,6 +85,7 @@ struct GUIContext {
 	std::string current_file;
 	std::string config_path;
 	std::string d_Li6_dir;
+	std::string beam_dir;
 	std::string assets_dir;
 	brill::AppConfig config;
 	std::vector<brill::D6LiEvent> all_events;
@@ -113,6 +113,71 @@ static bool PassBeamFilter(const brill::D6LiEvent &ev) {
 		case 3: return ev.is_12C;
 		default: return true;
 	}
+}
+
+struct BeamFileCache {
+	TFile *file = nullptr;
+	TTree *tree = nullptr;
+	double E_beam = 0.0;
+	int run = -1;
+	~BeamFileCache() { if (file) { file->Close(); delete file; } }
+
+	BeamFileCache() = default;
+	BeamFileCache(BeamFileCache&& other) noexcept
+		: file(other.file), tree(other.tree), E_beam(other.E_beam), run(other.run) {
+		other.file = nullptr;
+		other.tree = nullptr;
+	}
+	BeamFileCache& operator=(BeamFileCache&& other) noexcept {
+		if (this != &other) {
+			if (file) { file->Close(); delete file; }
+			file = other.file;
+			tree = other.tree;
+			E_beam = other.E_beam;
+			run = other.run;
+			other.file = nullptr;
+			other.tree = nullptr;
+		}
+		return *this;
+	}
+	BeamFileCache(const BeamFileCache&) = delete;
+	BeamFileCache& operator=(const BeamFileCache&) = delete;
+};
+static std::map<int, BeamFileCache> g_beam_cache;
+
+static double ReadBeamEnergy(int run, Long64_t entry, const std::string &beam_dir) {
+	auto it = g_beam_cache.find(run);
+	if (it == g_beam_cache.end()) {
+		TString path = TString::Format("%s/beam_%04d.root", beam_dir.c_str(), run);
+		TFile *f = TFile::Open(path);
+		if (!f || f->IsZombie()) {
+			if (f) delete f;
+			g_beam_cache[run] = {};
+			return -1.0;
+		}
+		TTree *t = (TTree*)f->Get("tree");
+		if (!t) {
+			f->Close(); delete f;
+			g_beam_cache[run] = {};
+			return -1.0;
+		}
+		BeamFileCache cache;
+		cache.file = f;
+		cache.tree = t;
+		cache.run = run;
+		if (!t->GetBranch("E")) {
+			f->Close(); delete f;
+			g_beam_cache[run] = {};
+			return -1.0;
+		}
+		g_beam_cache[run] = std::move(cache);
+		it = g_beam_cache.find(run);
+		it->second.tree->SetBranchAddress("E", &it->second.E_beam);
+	}
+	Long64_t max_entries = it->second.tree->GetEntries();
+	if (!it->second.tree || entry < 0 || entry >= max_entries) return -1.0;
+	it->second.tree->GetEntry(entry);
+	return it->second.E_beam;
 }
 
 static void RebuildHistograms() {
@@ -177,36 +242,21 @@ static void RebuildAnalysisHistograms() {
 
 static void RebuildExcitationHistograms() {
 	auto &ec = g_ctx.ec;
-	if (ec.h_excitation) delete ec.h_excitation;
-	if (ec.h_excitation_10C_mm) delete ec.h_excitation_10C_mm;
-	if (ec.h_excitation_6Li_mm) delete ec.h_excitation_6Li_mm;
+	if (ec.h_excitation_mm) delete ec.h_excitation_mm;
 	if (ec.h_excitation_invmass) delete ec.h_excitation_invmass;
+	if (ec.h_excitation_mm_fixed) delete ec.h_excitation_mm_fixed;
 	int nbins = g_ctx.entry_excitation_bins
 		? g_ctx.entry_excitation_bins->GetIntNumber() : 30;
 	if (nbins < 5) nbins = 5;
 	double bin_keV = 30000.0 / nbins;
 	TString bin_label = TString::Format("Counts / %.0f keV", bin_keV);
 
-	ec.h_excitation = new TH1D(
-		"h_excitation",
-		TString::Format("^{10}C Excitation (p-consv, %s);E_{x} (MeV);%s",
-			BeamLabel(), bin_label.Data()),
+	ec.h_excitation_mm = new TH1D(
+		"h_excitation_mm",
+		TString::Format("^{10}C Excitation (miss.mass, ^{14}O);E_{x} (MeV);%s",
+			bin_label.Data()),
 		nbins, -10, 20);
-	ec.h_excitation->SetDirectory(0);
-
-	ec.h_excitation_10C_mm = new TH1D(
-		"h_excitation_10C_mm",
-		TString::Format("^{10}C Excitation (^{10}C miss, %s);E_{x} (MeV);%s",
-			BeamLabel(), bin_label.Data()),
-		nbins, -10, 20);
-	ec.h_excitation_10C_mm->SetDirectory(0);
-
-	ec.h_excitation_6Li_mm = new TH1D(
-		"h_excitation_6Li_mm",
-		TString::Format("^{10}C Excitation (^{6}Li miss, %s);E_{x} (MeV);%s",
-			BeamLabel(), bin_label.Data()),
-		nbins, -10, 20);
-	ec.h_excitation_6Li_mm->SetDirectory(0);
+	ec.h_excitation_mm->SetDirectory(0);
 
 	ec.h_excitation_invmass = new TH1D(
 		"h_excitation_invmass",
@@ -214,6 +264,13 @@ static void RebuildExcitationHistograms() {
 			BeamLabel(), bin_label.Data()),
 		nbins, -10, 20);
 	ec.h_excitation_invmass->SetDirectory(0);
+
+	ec.h_excitation_mm_fixed = new TH1D(
+		"h_excitation_mm_fixed",
+		TString::Format("^{10}C Excitation (miss.mass, E_{b}=35.6 MeV/u);E_{x} (MeV);%s",
+			bin_label.Data()),
+		nbins, -10, 20);
+	ec.h_excitation_mm_fixed->SetDirectory(0);
 }
 
 static void FillHistograms() {
@@ -259,10 +316,37 @@ static void FillAnalysisHistograms(TCutG *cut) {
 	const double m_6Li = brill::GetMass(3, 6);
 	const double m_14O = brill::GetMass(8, 14);
 	const double m_d = brill::GetMass(1, 2);
-	const double Q = m_14O + m_d - m_10C - m_6Li;
 
-	brill::TargetEnergyLoss tel_10C(g_ctx.config, 6, 10);
-	brill::TargetEnergyLoss tel_6Li(g_ctx.config, 3, 6);
+	catima::Material cd2_mat;
+	cd2_mat.add_element(12.0, 6.0, 1.0);
+	cd2_mat.add_element(2.0, 1.0, 2.0);
+	cd2_mat.density(0.79867);
+	std::string cache_dir = brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.energy_calculator);
+	TString cache_10C = TString::Format("%s/target_z6_a10_cd2.root", cache_dir.c_str());
+	TString cache_6Li = TString::Format("%s/target_z3_a6_cd2.root", cache_dir.c_str());
+	if (!std::filesystem::exists(cache_6Li.Data())) {
+		printf("  WARNING: 6Li cache %s not found. Energy-loss correction may fail.\n", cache_6Li.Data());
+	}
+	brill::RangeEnergyCalculator calc_10C(6, 10, cd2_mat, cache_10C.Data());
+	brill::RangeEnergyCalculator calc_6Li(3, 6, cd2_mat, cache_6Li.Data());
+	const double half_thick_um = 122.0 / 2.0;
+
+	static std::unique_ptr<brill::RangeEnergyCalculator> s_beam_calc;
+	static bool s_beam_calc_checked = false;
+	static bool s_beam_calc_ok = false;
+	TString beam_cache_path = TString::Format("%s/target_z8_a14_cd2.root", cache_dir.c_str());
+	if (!s_beam_calc_checked) {
+		s_beam_calc_checked = true;
+		if (std::filesystem::exists(beam_cache_path.Data())) {
+			s_beam_calc.reset(new brill::RangeEnergyCalculator(8, 14, cd2_mat, beam_cache_path.Data()));
+			s_beam_calc_ok = true;
+		} else {
+			printf("  WARNING: beam cache %s not found, skipping beam-dependent methods.\n",
+				beam_cache_path.Data());
+			printf("  Run GUI_10C_4He first to generate it.\n");
+			s_beam_calc_ok = false;
+		}
+	}
 
 	int total_events = (int)g_ctx.all_events.size();
 	int passed = 0;
@@ -286,119 +370,109 @@ static void FillAnalysisHistograms(TCutG *cut) {
 		if (!cut->IsInside(ev.e2_6Li, ev.e1_6Li)) continue;
 
 		printf("    run=%d  entry=%lld\n", ev.run_number, ev.entry);
+		fflush(stdout);
 		passed++;
 
-		double E_10C_raw = ev.e1_10C + ev.e2_10C + ev.e3_10C + ev.e4_10C;
-		double E_6Li_raw = ev.e1_6Li + ev.e2_6Li;
+		double T_10C = ev.e1_10C + ev.e2_10C + ev.e3_10C + ev.e4_10C;
+		double T_6Li = ev.e1_6Li + ev.e2_6Li;
 
-		bool apply_loss = g_ctx.chk_energy_loss
-			? g_ctx.chk_energy_loss->IsOn() : true;
-		double E_10C_corr, E_6Li_corr;
-		if (apply_loss) {
-			double dummy;
-			E_10C_corr = tel_10C.IncidentEnergy(E_10C_raw, ev.theta_10C,
-				brill::TargetType::kCD2, dummy);
-			E_6Li_corr = tel_6Li.IncidentEnergy(E_6Li_raw, ev.theta_6Li,
-				brill::TargetType::kCD2, dummy);
-		} else {
-			E_10C_corr = E_10C_raw;
-			E_6Li_corr = E_6Li_raw;
-		}
+		double z = g_ctx.entry_z ? g_ctx.entry_z->GetNumber() : 0.0;
+		double exit_thick = std::max(0.0, half_thick_um - z);
 
-		g_ctx.ac.h_E_6Li_E_10C->Fill(E_10C_corr, E_6Li_corr);
-		g_ctx.ac.h_10C_e_theta->Fill(ev.theta_10C, E_10C_corr);
-		g_ctx.ac.h_6Li_e_theta->Fill(ev.theta_6Li, E_6Li_corr);
+		double costh_10C = std::cos(ev.theta_10C * M_PI / 180.0);
+		double costh_6Li = std::cos(ev.theta_6Li * M_PI / 180.0);
+		double exit_10C = exit_thick / std::max(costh_10C, 0.001);
+		double exit_6Li = exit_thick / std::max(costh_6Li, 0.001);
+
+		double r_10C = calc_10C.Range(T_10C);
+		double r_10C_rxn = r_10C + exit_10C;
+		double T_10C_corr = calc_10C.Energy(r_10C_rxn);
+
+		double r_6Li = calc_6Li.Range(T_6Li);
+		double r_6Li_rxn = r_6Li + exit_6Li;
+		double T_6Li_corr = calc_6Li.Energy(r_6Li_rxn);
+
+		g_ctx.ac.h_E_6Li_E_10C->Fill(T_10C_corr, T_6Li_corr);
+		g_ctx.ac.h_10C_e_theta->Fill(ev.theta_10C, T_10C_corr);
+		g_ctx.ac.h_6Li_e_theta->Fill(ev.theta_6Li, T_6Li_corr);
 		g_ctx.ac.h_theta_theta->Fill(ev.theta_10C, ev.theta_6Li);
 
-		double p_10C = std::sqrt(2.0 * m_10C * E_10C_corr);
-		double p_6Li = std::sqrt(2.0 * m_6Li * E_6Li_corr);
+		// construct lab-frame 3D direction from t0d2 positions
+		double dx_10C = ev.t0d2_10C_x - ev.target_x;
+		double dy_10C = ev.t0d2_10C_y - ev.target_y;
+		double dz_10C = ev.t0d2_10C_z;
+		double norm_10C = std::sqrt(dx_10C*dx_10C + dy_10C*dy_10C + dz_10C*dz_10C);
 
-		double sin_10C = std::sin(ev.theta_10C * M_PI / 180.0);
-		double cos_10C = std::cos(ev.theta_10C * M_PI / 180.0);
-		double sin_6Li = std::sin(ev.theta_6Li * M_PI / 180.0);
-		double cos_6Li = std::cos(ev.theta_6Li * M_PI / 180.0);
+		double dx_6Li = ev.t0d2_6Li_x - ev.target_x;
+		double dy_6Li = ev.t0d2_6Li_y - ev.target_y;
+		double dz_6Li = ev.t0d2_6Li_z;
+		double norm_6Li = std::sqrt(dx_6Li*dx_6Li + dy_6Li*dy_6Li + dz_6Li*dz_6Li);
 
-		double pT_10C = p_10C * sin_10C;
-		double pT_6Li = p_6Li * sin_6Li;
-		// coplanarity: φ_6Li = φ_10C + π → transverse momenta opposite
-		double pT_diff = pT_10C - pT_6Li;
-		double pz_sum  = p_10C * cos_10C + p_6Li * cos_6Li;
-		double p2_14O = pT_diff * pT_diff + pz_sum * pz_sum;
+		double E_10C_tot = T_10C_corr + m_10C;
+		double E_6Li_tot = T_6Li_corr + m_6Li;
+		double p_10C = std::sqrt(E_10C_tot * E_10C_tot - m_10C * m_10C);
+		double p_6Li = std::sqrt(E_6Li_tot * E_6Li_tot - m_6Li * m_6Li);
 
-		double E_14O = p2_14O / (2.0 * m_14O);
-		double E_x = E_14O - E_10C_corr - E_6Li_corr + Q;
+		TLorentzVector P_10C(p_10C * dx_10C / norm_10C,
+			p_10C * dy_10C / norm_10C,
+			p_10C * dz_10C / norm_10C, E_10C_tot);
+		TLorentzVector P_6Li(p_6Li * dx_6Li / norm_6Li,
+			p_6Li * dy_6Li / norm_6Li,
+			p_6Li * dz_6Li / norm_6Li, E_6Li_tot);
 
-		double total_E_cut = g_ctx.entry_total_E
-			? g_ctx.entry_total_E->GetNumber() : 0.0;
-		if (E_10C_corr + E_6Li_corr > total_E_cut) {
-			g_ctx.ec.h_excitation->Fill(E_x);
+		// === Method 2: momentum conservation + invariant mass (always) ===
+		TVector3 p_14O_reco = P_10C.Vect() + P_6Li.Vect();
+		double E_14O_reco = std::sqrt(p_14O_reco.Mag2() + m_14O * m_14O);
+		TLorentzVector P_14O_reco(p_14O_reco, E_14O_reco);
+		TLorentzVector P_d(0, 0, 0, m_d);
+		TLorentzVector P_10C_star_inv = P_14O_reco + P_d - P_6Li;
+		double E_x_inv = P_10C_star_inv.M() - m_10C;
+		g_ctx.ec.h_excitation_invmass->Fill(E_x_inv);
 
-			// use 10C position for φ reference, then stored θ + coplanarity
-			double rho_10C = std::sqrt(
-				(ev.t0d2_10C_x - ev.target_x) * (ev.t0d2_10C_x - ev.target_x) +
-				(ev.t0d2_10C_y - ev.target_y) * (ev.t0d2_10C_y - ev.target_y));
-			double cos_phi = rho_10C > 0
-				? (ev.t0d2_10C_x - ev.target_x) / rho_10C : 1.0;
-			double sin_phi = rho_10C > 0
-				? (ev.t0d2_10C_y - ev.target_y) / rho_10C : 0.0;
+		// === Method 1: missing mass with TOF beam energy (14O only) ===
+		if (g_beam_filter == 1 && s_beam_calc_ok) {
+			double E_beam_raw = ReadBeamEnergy(ev.run_number, ev.entry, g_ctx.beam_dir);
+			if (E_beam_raw > 0) {
+				double norm_beam = std::sqrt(1.0 + ev.dir_x * ev.dir_x + ev.dir_y * ev.dir_y);
+				double beam_depth = (half_thick_um + z) * norm_beam;
+				double beam_range_before = s_beam_calc->Range(E_beam_raw);
+				double beam_range_rxn = beam_range_before - beam_depth;
+				if (beam_range_rxn > 0) {
+					double E_beam = s_beam_calc->Energy(beam_range_rxn);
+					double E_A = E_beam + m_14O;
+					double p_A = std::sqrt(E_A * E_A - m_14O * m_14O);
+					double beam_norm = std::sqrt(1.0 + ev.dir_x*ev.dir_x + ev.dir_y*ev.dir_y);
+					TLorentzVector P_A(p_A * ev.dir_x / beam_norm,
+						p_A * ev.dir_y / beam_norm,
+						p_A * 1.0 / beam_norm, E_A);
+					TLorentzVector P_B(0, 0, 0, m_d);
+					TLorentzVector P_10C_star = P_A + P_B - P_6Li;
+					double E_x_mm = P_10C_star.M() - m_10C;
+					g_ctx.ec.h_excitation_mm->Fill(E_x_mm);
+				}
+			}
+		}
 
-			// relativistic momenta from stored θ + coplanarity
-			double E_10C_tot_kin = m_10C + E_10C_corr;
-			double p_rel_10C = std::sqrt(E_10C_tot_kin * E_10C_tot_kin - m_10C * m_10C);
-			double px_10C = p_rel_10C * sin_10C * cos_phi;
-			double py_10C = p_rel_10C * sin_10C * sin_phi;
-			double pz_10C = p_rel_10C * cos_10C;
-
-			double E_6Li_tot_kin = m_6Li + E_6Li_corr;
-			double p_rel_6Li = std::sqrt(E_6Li_tot_kin * E_6Li_tot_kin - m_6Li * m_6Li);
-			double px_6Li = p_rel_6Li * sin_6Li * cos_phi;
-			double py_6Li = p_rel_6Li * sin_6Li * sin_phi;
-			double pz_6Li = p_rel_6Li * cos_6Li;
-
-			double E_14O_tot = m_14O + 35.3 * 14.0;
-			double p_14O_sq = E_14O_tot * E_14O_tot - m_14O * m_14O;
-			double p_beam_mag = std::sqrt(p_14O_sq);
-
-			double bx = ev.dir_x;
-			double by = ev.dir_y;
-			double bz = 1.0;
-			double br = std::sqrt(bx*bx + by*by + bz*bz);
-			double pbx = p_beam_mag * bx / br;
-			double pby = p_beam_mag * by / br;
-			double pbz = p_beam_mag * bz / br;
-
-			double E_6Li_tot = m_6Li + E_6Li_corr;
-			double dE_10C_mm = E_14O_tot + m_d - E_6Li_tot;
-			double dpx_10C = pbx - px_6Li;
-			double dpy_10C = pby - py_6Li;
-			double dpz_10C = pbz - pz_6Li;
-			double dp2_10C = dpx_10C*dpx_10C + dpy_10C*dpy_10C + dpz_10C*dpz_10C;
-			double M_10C_star = std::sqrt(dE_10C_mm * dE_10C_mm - dp2_10C);
-			double E_x_10C_mm = M_10C_star - m_10C;
-
-			double p10_sq_m = px_10C*px_10C + py_10C*py_10C + pz_10C*pz_10C;
-			double dpx_6Li = pbx - px_10C;
-			double dpy_6Li = pby - py_10C;
-			double dpz_6Li = pbz - pz_10C;
-			double dp2_6Li = dpx_6Li*dpx_6Li + dpy_6Li*dpy_6Li + dpz_6Li*dpz_6Li;
-			double E_6Li_recon = std::sqrt(m_6Li * m_6Li + dp2_6Li);
-			double dE_6Li_mm = E_14O_tot + m_d - E_6Li_recon;
-			double M_10C_star_6Li = std::sqrt(dE_6Li_mm * dE_6Li_mm - p10_sq_m);
-			double E_x_6Li_mm = M_10C_star_6Li - m_10C;
-
-			g_ctx.ec.h_excitation_10C_mm->Fill(E_x_10C_mm);
-			g_ctx.ec.h_excitation_6Li_mm->Fill(E_x_6Li_mm);
-
-			TLorentzVector P10C(px_10C, py_10C, pz_10C, E_10C_tot_kin);
-			TLorentzVector P6Li(px_6Li, py_6Li, pz_6Li, E_6Li_tot_kin);
-			TVector3 p14O = P10C.Vect() + P6Li.Vect();
-			double E14O_reco = std::sqrt(p14O.Mag2() + m_14O * m_14O);
-			TLorentzVector P14O(p14O, E14O_reco);
-			TLorentzVector Pd(0, 0, 0, m_d);
-			TLorentzVector P10Cstar = P14O + Pd - P6Li;
-			double Ex = P10Cstar.M() - m_10C;
-
-			g_ctx.ec.h_excitation_invmass->Fill(Ex);
+		// === Method 3: missing mass with fixed beam energy 35.6 MeV/u (all beams) ===
+		if (s_beam_calc_ok) {
+			double E_beam_fixed = 35.6 * 14;
+			double norm_beam = std::sqrt(1.0 + ev.dir_x * ev.dir_x + ev.dir_y * ev.dir_y);
+			double beam_depth = (half_thick_um + z) * norm_beam;
+			double beam_range_before = s_beam_calc->Range(E_beam_fixed);
+			double beam_range_rxn = beam_range_before - beam_depth;
+			if (beam_range_rxn > 0) {
+				double E_beam_at_rxn = s_beam_calc->Energy(beam_range_rxn);
+				double E_A = E_beam_at_rxn + m_14O;
+				double p_A = std::sqrt(E_A * E_A - m_14O * m_14O);
+				double beam_norm = std::sqrt(1.0 + ev.dir_x*ev.dir_x + ev.dir_y*ev.dir_y);
+				TLorentzVector P_A(p_A * ev.dir_x / beam_norm,
+					p_A * ev.dir_y / beam_norm,
+					p_A * 1.0 / beam_norm, E_A);
+				TLorentzVector P_B(0, 0, 0, m_d);
+				TLorentzVector P_10C_star = P_A + P_B - P_6Li;
+				double E_x_mm_fixed = P_10C_star.M() - m_10C;
+				g_ctx.ec.h_excitation_mm_fixed->Fill(E_x_mm_fixed);
+			}
 		}
 	}
 	printf("\r  Analysis done: %d events, passed=%d (%d%%)        \n",
@@ -466,17 +540,6 @@ static void DrawAnalysisHistograms() {
 	ac.canvas->cd(1);
 	ac.h_E_6Li_E_10C->Draw("colz");
 
-	double total_E_line = g_ctx.entry_total_E
-		? g_ctx.entry_total_E->GetNumber() : 0.0;
-	if (total_E_line > 0) {
-		TGraph *g_total = new TGraph(2);
-		g_total->SetPoint(0, total_E_line - 80, 80);
-		g_total->SetPoint(1, total_E_line - 30, 30);
-		g_total->SetLineColor(kRed);
-		g_total->SetLineWidth(2);
-		g_total->Draw("L same");
-	}
-
 	ac.canvas->cd(2);
 	ac.h_10C_e_theta->Draw("colz");
 	ref_10C->Draw("L same");
@@ -502,13 +565,11 @@ static void DrawExcitationHistograms() {
 	ec.canvas->Clear();
 	ec.canvas->Divide(2, 2);
 	ec.canvas->cd(1);
-	ec.h_excitation->Draw();
+	ec.h_excitation_mm->Draw();
 	ec.canvas->cd(2);
-	ec.h_excitation_10C_mm->Draw();
-	ec.canvas->cd(3);
-	ec.h_excitation_6Li_mm->Draw();
-	ec.canvas->cd(4);
 	ec.h_excitation_invmass->Draw();
+	ec.canvas->cd(3);
+	ec.h_excitation_mm_fixed->Draw();
 	ec.canvas->Modified();
 	ec.canvas->Update();
 }
@@ -518,7 +579,7 @@ static void OnBeamChanged() {
 	FillHistograms();
 	DrawHistograms();
 
-	std::string cut_path = "src/brill/Cut/cal_d1_d2_6Li_cut.C";
+	std::string cut_path = "src/brill/Cut/cal_d1_d2_Li_large_cut.C";
 	TCutG *cut = brill::LoadCutGFromFile(cut_path);
 	FillAnalysisHistograms(cut);
 	DrawAnalysisHistograms();
@@ -588,7 +649,7 @@ void OnFileOpen() {
 	FillHistograms();
 	DrawHistograms();
 
-	std::string cut_path = "src/brill/Cut/cal_d1_d2_6Li_cut.C";
+	std::string cut_path = "src/brill/Cut/cal_d1_d2_Li_large_cut.C";
 	printf("  Loading cut: %s\n", cut_path.c_str());
 	TCutG *cut = brill::LoadCutGFromFile(cut_path);
 
@@ -619,6 +680,7 @@ int main(int argc, char **argv) {
 	}
 	g_ctx.config = config;
 	g_ctx.d_Li6_dir = brill::JoinPath(config.workspace, config.paths.d_Li6);
+	g_ctx.beam_dir = brill::JoinPath(config.workspace, config.paths.beam);
 	g_ctx.assets_dir = "assets";
 	brill::SetAssetsPath(config.assets);
 
@@ -705,22 +767,13 @@ int main(int argc, char **argv) {
 	beam_frame->AddFrame(bins_label2, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
 	g_ctx.entry_excitation_bins = entry_excitation_bins;
 
-	TGLabel *total_e_label = new TGLabel(beam_frame, "  E_{10C}+E_{6Li} > ");
-	beam_frame->AddFrame(total_e_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
-
-	TGNumberEntry *entry_total_E = new TGNumberEntry(beam_frame, 0, 5, -1,
+	TGLabel *z_label = new TGLabel(beam_frame, "  z(µm): ");
+	beam_frame->AddFrame(z_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
+	g_ctx.entry_z = new TGNumberEntry(beam_frame, 0, 5, -1,
 		TGNumberFormat::kNESReal,
-		TGNumberFormat::kNEANonNegative,
-		TGNumberFormat::kNELLimitMinMax, 0, 1000);
-	beam_frame->AddFrame(entry_total_E, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
-	TGLabel *total_e_unit = new TGLabel(beam_frame, " MeV");
-	beam_frame->AddFrame(total_e_unit, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
-	g_ctx.entry_total_E = entry_total_E;
-
-	TGCheckButton *chk_loss = new TGCheckButton(beam_frame, "Eloss corr.");
-	chk_loss->SetState(kButtonDown);
-	beam_frame->AddFrame(chk_loss, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
-	g_ctx.chk_energy_loss = chk_loss;
+		TGNumberFormat::kNEAAnyNumber,
+		TGNumberFormat::kNELLimitMinMax, -61, 61);
+	beam_frame->AddFrame(g_ctx.entry_z, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
 
 	TGTextButton *btn_draw = new TGTextButton(beam_frame, "Draw");
 	btn_draw->SetCommand("g_redraw = true;");
@@ -763,7 +816,7 @@ int main(int argc, char **argv) {
 		if (g_redraw) {
 			g_redraw = false;
 			if (!g_ctx.current_file.empty()) {
-				OnFileOpen();
+				OnBeamChanged();
 			}
 		}
 		g_menu_action = 0;

@@ -257,11 +257,13 @@ target_link_libraries(
 	C10He4_event
 	rebuild_physics
 	physics
+	lise_physics
 	ROOT::RIO
 	ROOT::Tree
 	ROOT::Hist
 	ROOT::Graf
 	ROOT::Gui
+	ROOT::Physics
 )
 
 add_executable(GUI_d_Li6 GUI_d_Li6.cpp)
@@ -272,6 +274,7 @@ target_link_libraries(
 	d_6Li_event
 	rebuild_physics
 	physics
+	energy_calculator
 	lise_physics
 	ROOT::RIO
 	ROOT::Tree

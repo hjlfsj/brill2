@@ -18,8 +18,11 @@
 #include <TString.h>
 #include <TTree.h>
 
+#include <catima/catima.h>
+
 #include "external/cxxopts.hpp"
 #include "include/config.h"
+#include "include/energy_calculator/range_energy_calculator.h"
 #include "include/event/beam/beam_sort.h"
 #include "include/event/ingot/beam_event.h"
 #include "include/event/t0/dssd_match_event.h"
@@ -33,6 +36,8 @@ constexpr int kMaxEvents = 1000000;
 constexpr double k14OMass = 13044.84;
 constexpr double kLightSpeed = 299.792458;
 constexpr double kTofDistance = 17000.0;
+
+constexpr double kCD2TargetThicknessUm = 121.7;
 
 struct CalibrationParameters {
 	double p0[kCalibrationLayers] = {0.0, 0.0, 0.0, 0.0, 0.0};
@@ -74,17 +79,43 @@ double CalibrateEnergy(
 	return parameters.p0[layer] + parameters.p1[layer] * raw_energy;
 }
 
+catima::Material CreateCD2Material() {
+	catima::Material material;
+	material.add_element(12.0, 6.0, 1.0);
+	material.add_element(2.0, 1.0, 2.0);
+	material.density(0.79867);
+	return material;
+}
+
+double CorrectBeamEnergy(
+	double E0,
+	brill::RangeEnergyCalculator &cd2_calc
+) {
+	double range_cd2 = cd2_calc.Range(E0);
+	double range_at_target = range_cd2 + kCD2TargetThicknessUm;
+	return cd2_calc.Energy(range_at_target);
+}
+
 int OpenRunFiles(
 	const std::string &match_dir,
 	const std::string &trigger_infix,
 	int run,
+	TFile *&d1_file,
 	TFile *&d2_file,
 	TFile *&d3_file,
+	TTree *&d1_tree,
 	TTree *&d2_tree,
 	TTree *&d3_tree,
+	brill::DssdMatchEvent &d1_event,
 	brill::DssdMatchEvent &d2_event,
 	brill::DssdMatchEvent &d3_event
 ) {
+	TString d1_path = TString::Format(
+		"%s/t0d1_%s%04d.root",
+		match_dir.c_str(),
+		trigger_infix.c_str(),
+		run
+	);
 	TString d2_path = TString::Format(
 		"%s/t0d2_%s%04d.root",
 		match_dir.c_str(),
@@ -98,6 +129,10 @@ int OpenRunFiles(
 		run
 	);
 
+	if (!std::filesystem::exists(d1_path.Data())) {
+		std::cerr << "Error: d1 match file not found: " << d1_path << "\n";
+		return 1;
+	}
 	if (!std::filesystem::exists(d2_path.Data())) {
 		std::cerr << "Error: d2 match file not found: " << d2_path << "\n";
 		return 1;
@@ -107,9 +142,15 @@ int OpenRunFiles(
 		return 1;
 	}
 
+	d1_file = new TFile(d1_path, "read");
 	d2_file = new TFile(d2_path, "read");
 	d3_file = new TFile(d3_path, "read");
 
+	d1_tree = static_cast<TTree*>(d1_file->Get("tree"));
+	if (!d1_tree) {
+		std::cerr << "Error: Get tree from " << d1_path << " failed.\n";
+		return 1;
+	}
 	d2_tree = static_cast<TTree*>(d2_file->Get("tree"));
 	if (!d2_tree) {
 		std::cerr << "Error: Get tree from " << d2_path << " failed.\n";
@@ -121,6 +162,7 @@ int OpenRunFiles(
 		return 1;
 	}
 
+	brill::SetupInput(d1_tree, d1_event);
 	brill::SetupInput(d2_tree, d2_event);
 	brill::SetupInput(d3_tree, d3_event);
 	return 0;
@@ -190,15 +232,20 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
+	TFile *d1_file = nullptr;
 	TFile *d2_file = nullptr;
 	TFile *d3_file = nullptr;
+	TTree *d1_tree = nullptr;
 	TTree *d2_tree = nullptr;
 	TTree *d3_tree = nullptr;
+	brill::DssdMatchEvent d1_event;
 	brill::DssdMatchEvent d2_event;
 	brill::DssdMatchEvent d3_event;
 
 	if (OpenRunFiles(match_dir, trigger_infix, run,
-		d2_file, d3_file, d2_tree, d3_tree, d2_event, d3_event)) {
+		d1_file, d2_file, d3_file,
+		d1_tree, d2_tree, d3_tree,
+		d1_event, d2_event, d3_event)) {
 		return 1;
 	}
 
@@ -210,8 +257,10 @@ int main(int argc, char **argv) {
 	);
 	if (!std::filesystem::exists(beam_path.Data())) {
 		std::cerr << "Error: beam file not found: " << beam_path << "\n";
+		d1_file->Close();
 		d2_file->Close();
 		d3_file->Close();
+		delete d1_file;
 		delete d2_file;
 		delete d3_file;
 		return 1;
@@ -220,8 +269,10 @@ int main(int argc, char **argv) {
 	TTree *beam_tree = static_cast<TTree*>(beam_file.Get("tree"));
 	if (!beam_tree) {
 		std::cerr << "Error: Get tree from " << beam_path << " failed.\n";
+		d1_file->Close();
 		d2_file->Close();
 		d3_file->Close();
+		delete d1_file;
 		delete d2_file;
 		delete d3_file;
 		return 1;
@@ -237,8 +288,10 @@ int main(int argc, char **argv) {
 	);
 	if (!std::filesystem::exists(sorted_beam_path.Data())) {
 		std::cerr << "Error: sorted beam file not found: " << sorted_beam_path << "\n";
+		d1_file->Close();
 		d2_file->Close();
 		d3_file->Close();
+		delete d1_file;
 		delete d2_file;
 		delete d3_file;
 		return 1;
@@ -247,8 +300,10 @@ int main(int argc, char **argv) {
 	TTree *sorted_beam_tree = static_cast<TTree*>(sorted_beam_file.Get("tree"));
 	if (!sorted_beam_tree) {
 		std::cerr << "Error: Get tree from " << sorted_beam_path << " failed.\n";
+		d1_file->Close();
 		d2_file->Close();
 		d3_file->Close();
+		delete d1_file;
 		delete d2_file;
 		delete d3_file;
 		return 1;
@@ -269,8 +324,9 @@ int main(int argc, char **argv) {
 	if (ReadCalibrationParameters(calibration_path, calibration)) return 1;
 	std::printf(
 		"Calibration (t0_%04d.txt): "
-		"d2(p0=%+.6f,p1=%.6f) d3(p0=%+.6f,p1=%.6f)\n",
+		"d1(p0=%+.6f,p1=%.6f) d2(p0=%+.6f,p1=%.6f) d3(p0=%+.6f,p1=%.6f)\n",
 		calib_run,
+		calibration.p0[0], calibration.p1[0],
 		calibration.p0[1], calibration.p1[1],
 		calibration.p0[2], calibration.p1[2]
 	);
@@ -280,6 +336,12 @@ int main(int argc, char **argv) {
 	std::printf("14O mass: %.2f MeV/c^2\n", k14OMass);
 
 	const double mass = k14OMass;
+
+	const std::string cache_dir = brill::JoinPath(config.workspace, config.paths.energy_calculator);
+	TString cd2_cache_path = TString::Format("%s/target_z8_a14_cd2.root", cache_dir.c_str());
+
+	brill::RangeEnergyCalculator cd2_calc(8, 14, CreateCD2Material(), cd2_cache_path.Data());
+	std::printf("Energy loss correction: CD2 target=%.1f um\n", kCD2TargetThicknessUm);
 
 	TH1D *h_beam_E = new TH1D("h_beam_E", "Beam Energy;E (MeV);Counts",
 		1000, 0.0, 1000.0);
@@ -291,10 +353,15 @@ int main(int argc, char **argv) {
 
 	TH2D *h_E_vs_tof = new TH2D("h_E_vs_tof", "E vs TOF;TOF (ns);E (MeV)",
 		400, 50.0, 70.0,
-		500, 450.0, 500.0);
+		500, 450.0, 550.0);
 	h_E_vs_tof->SetDirectory(0);
 
-	Long64_t total = d2_tree->GetEntries();
+	std::vector<double> E_vec;
+	std::vector<double> tof_vec;
+	E_vec.reserve(kMaxEvents);
+	tof_vec.reserve(kMaxEvents);
+
+	Long64_t total = d1_tree->GetEntries();
 	Long64_t passed = 0;
 	Long64_t last_percentage = -1;
 
@@ -309,14 +376,17 @@ int main(int argc, char **argv) {
 			std::fflush(stdout);
 		}
 
-		if (d2_tree->GetEntry(entry) <= 0 || d3_tree->GetEntry(entry) <= 0) continue;
+		if (d1_tree->GetEntry(entry) <= 0
+			|| d2_tree->GetEntry(entry) <= 0
+			|| d3_tree->GetEntry(entry) <= 0) continue;
 
-		if (d2_event.num != 1 || d3_event.num != 1) continue;
+		if (d1_event.num != 1 || d2_event.num != 1 || d3_event.num != 1) continue;
 
-		double dx = d3_event.x[0] - d2_event.x[0];
-		double dy = d3_event.y[0] - d2_event.y[0];
+		double dx = d3_event.x[0] - d1_event.x[0];
+		double dy = d3_event.y[0] - d1_event.y[0];
 		if (dx * dx + dy * dy >= 4.0) continue;
 
+		double d1_cal_e = CalibrateEnergy(calibration, 0, d1_event.energy[0]);
 		double d2_cal_e = CalibrateEnergy(calibration, 1, d2_event.energy[0]);
 		double d3_cal_e = CalibrateEnergy(calibration, 2, d3_event.energy[0]);
 
@@ -331,20 +401,25 @@ int main(int argc, char **argv) {
 
 		if (!beam_event.valid || !v_14O) continue;
 
-		double E = d2_cal_e + d3_cal_e;
+		double E_meas = d1_cal_e + d2_cal_e + d3_cal_e;
+		double E = CorrectBeamEnergy(E_meas, cd2_calc);
 		double tof = beam_event.tof;
 
 		h_beam_E->Fill(E);
 		h_tof->Fill(tof);
 		h_E_vs_tof->Fill(tof, E);
+		E_vec.push_back(E);
+		tof_vec.push_back(tof);
 
 		++passed;
 	}
 	std::printf("\b\b\b\b100%%\n");
 	std::printf("Passed events: %lld\n", passed);
 
+	d1_file->Close();
 	d2_file->Close();
 	d3_file->Close();
+	delete d1_file;
 	delete d2_file;
 	delete d3_file;
 	beam_file.Close();
@@ -360,12 +435,15 @@ int main(int argc, char **argv) {
 	int fit_status_E = h_beam_E->Fit("gaus", "Q", "", fit_low_E, fit_high_E);
 	double E0 = 0.0;
 	double E0_err = 0.0;
+	double sigma_E = 0.0;
 	if (fit_status_E == 0) {
 		TF1 *fit_E = h_beam_E->GetFunction("gaus");
 		if (fit_E) {
 			E0 = fit_E->GetParameter(1);
 			E0_err = fit_E->GetParError(1);
-			std::printf("  E0 = %.4f +/- %.4f MeV\n", E0, E0_err);
+			sigma_E = std::abs(fit_E->GetParameter(2));
+			std::printf("  E0 = %.4f +/- %.4f MeV, sigma = %.4f MeV\n",
+				E0, E0_err, sigma_E);
 		}
 	} else {
 		std::printf("  Beam energy fit failed (status=%d)\n", fit_status_E);
@@ -381,12 +459,15 @@ int main(int argc, char **argv) {
 	int fit_status_tof = h_tof->Fit("gaus", "Q", "", fit_low_tof, fit_high_tof);
 	double t0 = 0.0;
 	double t0_err = 0.0;
+	double sigma_tof = 0.0;
 	if (fit_status_tof == 0) {
 		TF1 *fit_tof = h_tof->GetFunction("gaus");
 		if (fit_tof) {
 			t0 = fit_tof->GetParameter(1);
 			t0_err = fit_tof->GetParError(1);
-			std::printf("  t0 = %.4f +/- %.4f ns\n", t0, t0_err);
+			sigma_tof = std::abs(fit_tof->GetParameter(2));
+			std::printf("  t0 = %.4f +/- %.4f ns, sigma = %.4f ns\n",
+				t0, t0_err, sigma_tof);
 		}
 	} else {
 		std::printf("  TOF fit failed (status=%d)\n", fit_status_tof);
@@ -406,6 +487,79 @@ int main(int argc, char **argv) {
 		std::printf("  True TOF = %.4f ns, measured TOF = %.4f ns\n",
 			t_true, t0);
 		std::printf("  TOF offset dt = t_measured - t_true = %.4f ns\n", dt);
+	}
+
+	// ==================== Gated histograms ====================
+
+	TH1D *h_beam_E_tof_gated = new TH1D("h_beam_E_tof_gated",
+		"Beam E (TOF-gated);E (MeV);Counts",
+		1000, 0.0, 1000.0);
+	h_beam_E_tof_gated->SetDirectory(0);
+
+	TH1D *h_tof_E_gated = new TH1D("h_tof_E_gated",
+		"TOF (E-gated);TOF (ns);Counts",
+		2000, 0.0, 200.0);
+	h_tof_E_gated->SetDirectory(0);
+
+	if (sigma_tof > 0.0) {
+		double tof_low = t0 - 0.25 * sigma_tof;
+		double tof_high = t0 + 0.25 * sigma_tof;
+		std::printf("\nTOF-gated E: selecting tof in [%.4f, %.4f] ns (t0 +/- 0.25*sigma_tof)\n",
+			tof_low, tof_high);
+		for (size_t i = 0; i < E_vec.size(); ++i) {
+			if (tof_vec[i] >= tof_low && tof_vec[i] <= tof_high) {
+				h_beam_E_tof_gated->Fill(E_vec[i]);
+			}
+		}
+		std::printf("  Entries in TOF gate: %.0f\n", h_beam_E_tof_gated->GetEntries());
+
+		int max_bin_E_gated = h_beam_E_tof_gated->GetMaximumBin();
+		double peak_pos_E_gated = h_beam_E_tof_gated->GetBinCenter(max_bin_E_gated);
+		double fit_low_E_gated = peak_pos_E_gated - 6.0;
+		double fit_high_E_gated = peak_pos_E_gated + 6.0;
+		int fit_status_E_gated = h_beam_E_tof_gated->Fit("gaus", "Q", "",
+			fit_low_E_gated, fit_high_E_gated);
+		if (fit_status_E_gated == 0) {
+			TF1 *fit_E_gated = h_beam_E_tof_gated->GetFunction("gaus");
+			if (fit_E_gated) {
+				double E0_gated = fit_E_gated->GetParameter(1);
+				double E0_gated_err = fit_E_gated->GetParError(1);
+				double sigma_E_gated = std::abs(fit_E_gated->GetParameter(2));
+				std::printf("  TOF-gated E0 = %.4f +/- %.4f MeV, sigma = %.4f MeV\n",
+					E0_gated, E0_gated_err, sigma_E_gated);
+			}
+		} else {
+			std::printf("  TOF-gated E fit failed (status=%d)\n", fit_status_E_gated);
+		}
+	}
+
+	if (sigma_E > 0.0) {
+		double E_low = E0 - 0.25 * sigma_E;
+		double E_high = E0 + 0.25 * sigma_E;
+		std::printf("\nE-gated TOF: selecting E in [%.4f, %.4f] MeV (E0 +/- 0.25*sigma_E)\n",
+			E_low, E_high);
+		for (size_t i = 0; i < tof_vec.size(); ++i) {
+			if (E_vec[i] >= E_low && E_vec[i] <= E_high) {
+				h_tof_E_gated->Fill(tof_vec[i]);
+			}
+		}
+		std::printf("  Entries in E gate: %.0f\n", h_tof_E_gated->GetEntries());
+
+		int max_bin_tof_gated = h_tof_E_gated->GetMaximumBin();
+		double peak_pos_tof_gated = h_tof_E_gated->GetBinCenter(max_bin_tof_gated);
+		double fit_low_tof_gated = peak_pos_tof_gated - 1.0;
+		double fit_high_tof_gated = peak_pos_tof_gated + 1.0;
+		int fit_status_tof_gated = h_tof_E_gated->Fit("gaus", "Q", "",
+			fit_low_tof_gated, fit_high_tof_gated);
+		if (fit_status_tof_gated == 0) {
+			TF1 *fit_tof_gated = h_tof_E_gated->GetFunction("gaus");
+			if (fit_tof_gated) {
+				double sigma_tof_gated = std::abs(fit_tof_gated->GetParameter(2));
+				std::printf("  E-gated TOF sigma = %.4f ns\n", sigma_tof_gated);
+			}
+		} else {
+			std::printf("  E-gated TOF fit failed (status=%d)\n", fit_status_tof_gated);
+		}
 	}
 
 	TString output_path = TString::Format(
@@ -460,8 +614,36 @@ int main(int argc, char **argv) {
 	output_file.cd();
 	c_2d.Write();
 	h_E_vs_tof->Write();
+
+	TCanvas c_E_tof_gated("c_E_tof_gated", "Beam E (TOF-gated)", 800, 600);
+	h_beam_E_tof_gated->Draw();
+	output_file.cd();
+	c_E_tof_gated.Write();
+	h_beam_E_tof_gated->Write();
+
+	TCanvas c_tof_E_gated("c_tof_E_gated", "TOF (E-gated)", 800, 600);
+	h_tof_E_gated->Draw();
+	output_file.cd();
+	c_tof_E_gated.Write();
+	h_tof_E_gated->Write();
+
 	output_file.Close();
 
 	std::printf("\nOutput saved to: %s\n", output_path.Data());
+
+	TString txt_path = TString::Format(
+		"%s/check_tof_and_beam_%04d.txt",
+		output_dir.c_str(),
+		run
+	);
+	std::ofstream ofs(txt_path.Data());
+	if (ofs.is_open()) {
+		ofs << "# E0        sigma_E0   t0         sigma_t0   dt\n";
+		ofs << TString::Format("%.4f   %.4f     %.4f     %.4f      %.6f\n",
+			E0, sigma_E, t0, sigma_tof, dt);
+		ofs.close();
+		std::printf("Parameters saved to: %s\n", txt_path.Data());
+	}
+
 	return 0;
 }

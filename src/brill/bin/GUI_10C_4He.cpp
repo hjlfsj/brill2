@@ -1,10 +1,13 @@
 #include "include/config.h"
 #include "include/10C+4He/10C_4He_event.h"
+#include "include/energy_calculator/range_energy_calculator.h"
 #include "include/physics/kinematics.h"
 #include "include/rebuild/nuclear_data.h"
 #include "include/utils.h"
 #include "external/cxxopts.hpp"
 
+#include <catima/catima.h>
+#include <TLorentzVector.h>
 #include <TApplication.h>
 #include <TCanvas.h>
 #include <TCutG.h>
@@ -65,6 +68,13 @@ struct AnalysisCanvas {
 	TH1D *h_excitation = nullptr;
 };
 
+struct ExcitationCanvas {
+	TCanvas *canvas = nullptr;
+	TH1D *h_excitation_10C = nullptr;
+	TH1D *h_14O_gate1 = nullptr;
+	TH1D *h_14O_gate2 = nullptr;
+};
+
 struct GUIContext {
 	TGMainFrame *main_frame = nullptr;
 	TGStatusBar *status_bar = nullptr;
@@ -78,14 +88,22 @@ struct GUIContext {
 	TGNumberEntry *entry_run_min = nullptr;
 	TGNumberEntry *entry_run_max = nullptr;
 	TGNumberEntry *entry_excitation_bins = nullptr;
+	TGNumberEntry *entry_x1 = nullptr;
+	TGNumberEntry *entry_x2 = nullptr;
+	TGNumberEntry *entry_x3 = nullptr;
+	TGNumberEntry *entry_z = nullptr;
 
 	BeamCanvases bcs;
 	FilteredCanvases fcs;
 	AnalysisCanvas ac;
+	ExcitationCanvas ec;
 
 	std::string current_file;
 	std::string config_path;
 	std::string c10_he4_dir;
+	std::string beam_dir;
+	std::string trigger;
+	brill::AppConfig config;
 	std::vector<brill::C10He4Event> all_events;
 
 	double z_d1 = 0.0;
@@ -93,6 +111,54 @@ struct GUIContext {
 	double z_d3 = 0.0;
 	double z_d4 = 0.0;
 };
+
+struct BeamFileCache {
+	TFile *file = nullptr;
+	TTree *tree = nullptr;
+	double E = -1.0;
+};
+
+static std::map<int, BeamFileCache> g_beam_cache;
+
+static double ReadBeamEnergy(int run, Long64_t entry, const std::string &beam_dir) {
+	auto it = g_beam_cache.find(run);
+	BeamFileCache *cache = nullptr;
+
+	if (it != g_beam_cache.end()) {
+		cache = &it->second;
+	} else {
+		TString beam_path = TString::Format("%s/beam_%04d.root",
+			beam_dir.c_str(), run);
+		if (!std::filesystem::exists(beam_path.Data())) {
+			fprintf(stderr, "Warning: beam file not found: %s\n", beam_path.Data());
+			return -1.0;
+		}
+		BeamFileCache new_cache;
+		new_cache.file = new TFile(beam_path, "read");
+		new_cache.tree = (TTree*)new_cache.file->Get("tree");
+		if (!new_cache.tree) {
+			fprintf(stderr, "Warning: no tree in %s\n", beam_path.Data());
+			delete new_cache.file;
+			return -1.0;
+		}
+		if (!new_cache.tree->GetBranch("E")) {
+			fprintf(stderr, "Warning: no E branch in %s\n", beam_path.Data());
+			delete new_cache.file;
+			return -1.0;
+		}
+		g_beam_cache[run] = new_cache;
+		cache = &g_beam_cache[run];
+		cache->tree->SetBranchAddress("E", &cache->E);
+	}
+
+	Long64_t n_entries = cache->tree->GetEntries();
+	if (entry < 0 || entry >= n_entries) {
+		return -1.0;
+	}
+
+	cache->tree->GetEntry(entry);
+	return cache->E;
+}
 
 static GUIContext g_ctx;
 static volatile int g_menu_action = 0;
@@ -241,6 +307,42 @@ static void RebuildAnalysisHistograms() {
 	ac.h_excitation->SetDirectory(0);
 }
 
+static void RebuildExcitationHistogram() {
+	auto &ec = g_ctx.ec;
+	if (ec.h_excitation_10C) delete ec.h_excitation_10C;
+	if (ec.h_14O_gate1) delete ec.h_14O_gate1;
+	if (ec.h_14O_gate2) delete ec.h_14O_gate2;
+
+	ec.h_excitation_10C = new TH1D(
+		"h_excitation_10C",
+		"^{10}C Excitation Energy (^{14}O beam);E_{x}(^{10}C) (MeV);Counts",
+		50, -10, 40);
+	ec.h_excitation_10C->SetDirectory(0);
+
+	int nbins = g_ctx.entry_excitation_bins
+		? g_ctx.entry_excitation_bins->GetIntNumber() : 200;
+	if (nbins < 10) nbins = 10;
+	double bin_keV = 20000.0 / nbins;
+
+	ec.h_14O_gate1 = new TH1D(
+		"h_14O_gate1",
+		TString::Format("^{14}O E_{x} (^{10}C E_{x} gate [%.0f, %.0f]);E_{x}(^{14}O) (MeV);Counts / %.0f keV",
+			g_ctx.entry_x1 ? g_ctx.entry_x1->GetNumber() : -2,
+			g_ctx.entry_x2 ? g_ctx.entry_x2->GetNumber() : 2,
+			bin_keV),
+		nbins, 5, 25);
+	ec.h_14O_gate1->SetDirectory(0);
+
+	ec.h_14O_gate2 = new TH1D(
+		"h_14O_gate2",
+		TString::Format("^{14}O E_{x} (^{10}C E_{x} gate [%.0f, %.0f]);E_{x}(^{14}O) (MeV);Counts / %.0f keV",
+			g_ctx.entry_x2 ? g_ctx.entry_x2->GetNumber() : 2,
+			g_ctx.entry_x3 ? g_ctx.entry_x3->GetNumber() : 7,
+			bin_keV),
+		nbins, 5, 25);
+	ec.h_14O_gate2->SetDirectory(0);
+}
+
 static void FillAllHistograms() {
 	RebuildBeamHistograms();
 
@@ -322,10 +424,27 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 	RebuildFilteredHistograms();
 	RebuildAnalysisHistograms();
 
+	if (g_beam_filter == 1) {
+		RebuildExcitationHistogram();
+	}
+
 	if (g_ctx.all_events.empty()) return;
 
 	double m_10C = brill::GetMass(6, 10);
 	double m_4He = brill::GetMass(2, 4);
+
+	catima::Material cd2_mat;
+	cd2_mat.add_element(12.0, 6.0, 1.0);
+	cd2_mat.add_element(2.0, 1.0, 2.0);
+	cd2_mat.density(0.79867);
+	std::string cache_dir = brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.energy_calculator);
+	TString beam_cache_path = TString::Format("%s/target_z8_a14_cd2.root", cache_dir.c_str());
+	brill::RangeEnergyCalculator beam_calc(8, 14, cd2_mat, beam_cache_path.Data());
+	TString cache_10C = TString::Format("%s/target_z6_a10_cd2.root", cache_dir.c_str());
+	brill::RangeEnergyCalculator calc_10C(6, 10, cd2_mat, cache_10C.Data());
+	TString cache_4He = TString::Format("%s/target_z2_a4_cd2.root", cache_dir.c_str());
+	brill::RangeEnergyCalculator calc_4He(2, 4, cd2_mat, cache_4He.Data());
+	const double half_thick_um = 122.0 / 2.0;
 
 	int total = (int)g_ctx.all_events.size();
 	int passed = 0;
@@ -386,6 +505,93 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 		ac.h_4He_e_theta->Fill(ev.theta_4He, T_4He);
 		ac.h_theta_theta->Fill(ev.theta_10C, ev.theta_4He);
 		ac.h_excitation->Fill(E_x);
+
+		if (g_beam_filter == 1) {
+			static long long ex_cnt = 0;
+			double E_beam_raw = ReadBeamEnergy(ev.run_number, ev.entry, g_ctx.beam_dir);
+			if (E_beam_raw > 0) {
+				ex_cnt++;
+
+				double norm_beam = std::sqrt(1.0 + ev.dir_x * ev.dir_x + ev.dir_y * ev.dir_y);
+				double z = g_ctx.entry_z->GetNumber();
+				double beam_depth = (half_thick_um + z) * norm_beam;
+				double exit_thick = std::max(0.0, half_thick_um - z);
+
+				double beam_range_before = beam_calc.Range(E_beam_raw);
+				double beam_range_rxn = beam_range_before - beam_depth;
+				double E_beam = beam_range_rxn > 0 ? beam_calc.Energy(beam_range_rxn) : E_beam_raw;
+
+				double costh_10C = std::cos(ev.theta_10C * M_PI / 180.0);
+				double costh_4He = std::cos(ev.theta_4He * M_PI / 180.0);
+				double exit_10C = exit_thick / std::max(costh_10C, 0.001);
+				double exit_4He = exit_thick / std::max(costh_4He, 0.001);
+
+				double r_10C_before = calc_10C.Range(T_10C);
+				double r_10C_rxn = r_10C_before + exit_10C;
+				double T_10C_corr = calc_10C.Energy(r_10C_rxn);
+
+				double r_4He_before = calc_4He.Range(T_4He);
+				double r_4He_rxn = r_4He_before + exit_4He;
+				double T_4He_corr = calc_4He.Energy(r_4He_rxn);
+
+				double E_10C = T_10C_corr + m_10C;
+				double E_4He = T_4He_corr + m_4He;
+
+				double p_10C = std::sqrt(E_10C * E_10C - m_10C * m_10C);
+				double p_4He = std::sqrt(E_4He * E_4He - m_4He * m_4He);
+
+				double dx_10C = ev.t0d2_10C_x - ev.target_x;
+				double dy_10C = ev.t0d2_10C_y - ev.target_y;
+				double dz_10C = ev.t0d2_10C_z;
+				double norm_10C = std::sqrt(dx_10C*dx_10C + dy_10C*dy_10C + dz_10C*dz_10C);
+
+				double dx_4He = ev.t0d2_4He_x - ev.target_x;
+				double dy_4He = ev.t0d2_4He_y - ev.target_y;
+				double dz_4He = ev.t0d2_4He_z;
+				double norm_4He = std::sqrt(dx_4He*dx_4He + dy_4He*dy_4He + dz_4He*dz_4He);
+
+				TLorentzVector P_10C(p_10C * dx_10C / norm_10C,
+					p_10C * dy_10C / norm_10C,
+					p_10C * dz_10C / norm_10C, E_10C);
+				TLorentzVector P_4He(p_4He * dx_4He / norm_4He,
+					p_4He * dy_4He / norm_4He,
+					p_4He * dz_4He / norm_4He, E_4He);
+
+				double m_14O = brill::GetMass(8, 14);
+				double m_d = brill::GetMass(1, 2);
+
+				double E_A = E_beam + m_14O;
+				double p_A_mag = std::sqrt(E_A * E_A - m_14O * m_14O);
+
+				TVector3 beam_dir(ev.dir_x / norm_beam, ev.dir_y / norm_beam, 1.0 / norm_beam);
+
+				TVector3 p_A_vec(p_A_mag * beam_dir.X(),
+					p_A_mag * beam_dir.Y(),
+					p_A_mag * beam_dir.Z());
+
+				TVector3 p_D = p_A_vec - P_10C.Vect() - P_4He.Vect();
+				double p_D_sq = p_D.Mag2();
+				double T_D = std::sqrt(p_D_sq + m_d * m_d) - m_d;
+
+				double Q = T_10C_corr + T_4He_corr + T_D - E_beam;
+				double Q0 = m_14O - m_4He - m_10C;
+				double E_x_10C = Q0 - Q;
+
+				g_ctx.ec.h_excitation_10C->Fill(E_x_10C);
+
+				double x1 = g_ctx.entry_x1->GetNumber();
+				double x2 = g_ctx.entry_x2->GetNumber();
+				double x3 = g_ctx.entry_x3->GetNumber();
+				if (E_x_10C >= x1 && E_x_10C <= x2)
+					g_ctx.ec.h_14O_gate1->Fill(E_x);
+				if (E_x_10C >= x2 && E_x_10C <= x3)
+					g_ctx.ec.h_14O_gate2->Fill(E_x);
+
+				if (ex_cnt % 10000 == 0)
+					printf("\r  [10CEx] event=%lld E_x(10C)=%.2f MeV",
+						ex_cnt, E_x_10C);
+			}
+		}
 	}
 
 	printf("\r  Filtering done: %d total, passed=%d, analyzed=%d        \n",
@@ -455,6 +661,43 @@ static void DrawAnalysisHistograms() {
 	ac.canvas->Update();
 }
 
+static void DrawExcitationHistogram() {
+	auto &ec = g_ctx.ec;
+	if (!ec.canvas) return;
+	if (!ec.h_excitation_10C) return;
+	ec.canvas->Clear();
+	ec.canvas->Divide(2, 2);
+
+	ec.canvas->cd(1);
+	if (ec.h_14O_gate1 && ec.h_14O_gate2) {
+		ec.h_14O_gate1->SetLineColor(kRed);
+		ec.h_14O_gate1->SetMarkerColor(kRed);
+		ec.h_14O_gate2->SetLineColor(kBlue);
+		ec.h_14O_gate2->SetMarkerColor(kBlue);
+		double ymax = std::max(ec.h_14O_gate1->GetMaximum(),
+			ec.h_14O_gate2->GetMaximum()) * 1.15;
+		ec.h_14O_gate1->SetMaximum(ymax);
+		ec.h_14O_gate1->Draw();
+		ec.h_14O_gate2->Draw("SAME");
+		TString title = TString::Format("^{14}O E_{x} (^{10}C gate overlay);E_{x}(^{14}O) (MeV);Counts");
+		ec.h_14O_gate1->SetTitle(title);
+	} else if (ec.h_14O_gate1) {
+		ec.h_14O_gate1->Draw();
+	}
+
+	ec.canvas->cd(2);
+	ec.h_excitation_10C->Draw();
+
+	ec.canvas->cd(3);
+	if (ec.h_14O_gate1) ec.h_14O_gate1->Draw();
+
+	ec.canvas->cd(4);
+	if (ec.h_14O_gate2) ec.h_14O_gate2->Draw();
+
+	ec.canvas->Modified();
+	ec.canvas->Update();
+}
+
 static void OnBeamChanged() {
 	if (g_ctx.current_file.empty()) return;
 
@@ -469,6 +712,10 @@ static void OnBeamChanged() {
 	FillFilteredAndAnalysis(cut);
 	DrawFilteredHistograms();
 	DrawAnalysisHistograms();
+
+	if (g_beam_filter == 1) {
+		DrawExcitationHistogram();
+	}
 }
 
 static void OnBeamChanged();
@@ -550,6 +797,10 @@ void RebuildFromFile(const std::string &filepath) {
 	DrawFilteredHistograms();
 	DrawAnalysisHistograms();
 
+	if (g_beam_filter == 1) {
+		DrawExcitationHistogram();
+	}
+
 	printf("  Done.\n");
 }
 
@@ -571,7 +822,10 @@ int main(int argc, char **argv) {
 		std::cerr << "Error: Load config failed.\n";
 		return 1;
 	}
+	g_ctx.config = config;
 	g_ctx.c10_he4_dir = brill::JoinPath(config.workspace, config.paths.c10_he4);
+	g_ctx.beam_dir = brill::JoinPath(config.workspace, config.paths.beam);
+	g_ctx.trigger = config.trigger;
 
 	const auto *det_d1 = brill::FindDetectorConfig(config, "t0d1");
 	const auto *det_d2 = brill::FindDetectorConfig(config, "t0d2");
@@ -683,6 +937,38 @@ int main(int argc, char **argv) {
 	chk_track->SetCommand("g_is_track = !g_is_track; g_beam_changed = true;");
 	beam_frame->AddFrame(chk_track, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
 
+	TGLabel *x1_label = new TGLabel(beam_frame, " x1: ");
+	beam_frame->AddFrame(x1_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
+	g_ctx.entry_x1 = new TGNumberEntry(beam_frame, -2, 5, -1,
+		TGNumberFormat::kNESReal,
+		TGNumberFormat::kNEAAnyNumber,
+		TGNumberFormat::kNELLimitMinMax, -20, 40);
+	beam_frame->AddFrame(g_ctx.entry_x1, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+
+	TGLabel *x2_label = new TGLabel(beam_frame, " x2: ");
+	beam_frame->AddFrame(x2_label, new TGLayoutHints(kLHintsCenterY, 5, 2, 2, 2));
+	g_ctx.entry_x2 = new TGNumberEntry(beam_frame, 2, 5, -1,
+		TGNumberFormat::kNESReal,
+		TGNumberFormat::kNEANonNegative,
+		TGNumberFormat::kNELLimitMinMax, -20, 40);
+	beam_frame->AddFrame(g_ctx.entry_x2, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+
+	TGLabel *x3_label = new TGLabel(beam_frame, " x3: ");
+	beam_frame->AddFrame(x3_label, new TGLayoutHints(kLHintsCenterY, 5, 2, 2, 2));
+	g_ctx.entry_x3 = new TGNumberEntry(beam_frame, 7, 5, -1,
+		TGNumberFormat::kNESReal,
+		TGNumberFormat::kNEANonNegative,
+		TGNumberFormat::kNELLimitMinMax, -20, 40);
+	beam_frame->AddFrame(g_ctx.entry_x3, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+
+	TGLabel *z_label = new TGLabel(beam_frame, " z(µm): ");
+	beam_frame->AddFrame(z_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
+	g_ctx.entry_z = new TGNumberEntry(beam_frame, 0, 5, -1,
+		TGNumberFormat::kNESReal,
+		TGNumberFormat::kNEAAnyNumber,
+		TGNumberFormat::kNELLimitMinMax, -61, 61);
+	beam_frame->AddFrame(g_ctx.entry_z, new TGLayoutHints(kLHintsCenterY, 2, 2, 2, 2));
+
 	main_frame->AddFrame(beam_frame, new TGLayoutHints(kLHintsTop | kLHintsLeft, 4, 4, 2, 2));
 
 	TRootEmbeddedCanvas *embed = new TRootEmbeddedCanvas("embed_main", main_frame, 1200, 700);
@@ -692,6 +978,7 @@ int main(int argc, char **argv) {
 
 	g_ctx.fcs.canvas = new TCanvas("canvas_filtered", "10C+4He Filtered", 1200, 800);
 	g_ctx.ac.canvas = new TCanvas("canvas_analysis", "10C+4He Analysis", 1200, 800);
+	g_ctx.ec.canvas = new TCanvas("canvas_excitation", "10C Excitation Energy", 800, 600);
 
 	TGStatusBar *status_bar = new TGStatusBar(main_frame, 1, 1);
 	main_frame->AddFrame(status_bar, new TGLayoutHints(kLHintsBottom | kLHintsExpandX));

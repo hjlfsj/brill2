@@ -51,6 +51,17 @@ sort_beam -r 57 -t t1
 | `14O_valid` | `Bool_t` | TOF 落在 14O 峰的 5σ 范围内 |
 | `13N_valid` | `Bool_t` | TOF 落在 13N 峰的 5σ 范围内 |
 | `12C_valid` | `Bool_t` | TOF 落在 12C 峰的 5σ 范围内 |
+| `tof` | `Double_t` | 原始 TOF 值 (ns) |
+| `E` | `Double_t` | 14O 束流能量 (MeV)，仅当 `14O_valid==true` 且 `check_tof_and_beam_<run>.txt` 存在时有效，否则为 -1 |
+
+E 的计算依赖 `beam/check_tof_and_beam_<run>.txt` 中的 $\Delta t$ 参数：
+
+$$
+E = mc^2\left(\frac{1}{\sqrt{1-\beta^2}} - 1\right), \quad
+\beta = \frac{L}{(t_{\text{tof}} - \Delta t) \cdot c}
+$$
+
+其中 $m = 13044.84\ \mathrm{MeV}/c^2$, $L = 17000\ \mathrm{mm}$, $c = 299.792458\ \mathrm{mm/ns}$。若 txt 文件不存在，打印警告且所有事件的 `E = -1`。
 
 ## 7. 算法流程
 
