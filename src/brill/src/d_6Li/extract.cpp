@@ -60,8 +60,6 @@ D6LiAdvancedResult ClassifyD6Li(
 ) {
 	D6LiAdvancedResult result;
 
-	if (std::abs(d3.x[0] - d4.x[0]) >= 2.0 || std::abs(d3.y[0] - d4.y[0]) >= 2.0) return result;
-
 	double e3_cal = CalibrateD6LiEnergy(calib, 2, d3.energy[0]);
 
 	if (d2d3_cut) {
@@ -71,8 +69,7 @@ D6LiAdvancedResult ClassifyD6Li(
 		for (int i = 0; i < 2; ++i) {
 			double e2_cal = CalibrateD6LiEnergy(calib, 1, d2.energy[i]);
 			bool in_cut = d2d3_cut->IsInside(e3_cal, e2_cal);
-			bool pos_match = std::abs(d2.x[i] - d3.x[0]) < 2.0 && std::abs(d2.y[i] - d3.y[0]) < 2.0;
-			if (in_cut && pos_match) {
+			if (in_cut) {
 				in_cut_count++;
 				in_cut_idx = i;
 			} else {

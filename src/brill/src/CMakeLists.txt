@@ -5,6 +5,7 @@ add_subdirectory(t0)
 add_subdirectory(d_6Li)
 add_subdirectory(10C+4He)
 add_subdirectory(C12_d_6Li)
+add_subdirectory(three_alpha)
 add_subdirectory(Lise++)
 add_subdirectory(physics)
 

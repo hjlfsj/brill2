@@ -135,16 +135,18 @@ PidFitFunc::operator: f(x)     = weight × prediction      （函数缩放）
 |------|------|--------|-------------------|
 | d1d2 | ⁴He | 1.0 | 1× |
 | d1d2 | ⁶Li | 1.0 | 1× |
-| d2d3 | ⁴He | **5.0** | **25×** |
-| d2d3 | ⁷Be | 2.0 | 4× |
+| d2d3 | ⁴He | 1.0 | 1× |
+| d2d3 | ⁷Be | 1.0 | 1× |
 | d2d3 | ¹²C | 1.0 | 1× |
-| d3d4 | ¹H | **16.0** | **256×** |
-| d3d4 | ⁴He | 4.0 | 16× |
-| d3d4 | ⁷Be | 2.0 | 4× |
+| d3d4 | ¹H | **0.0** | **关闭** |
+| d3d4 | ⁴He | 1.0 | 1× |
+| d3d4 | ⁷Be | 1.0 | 1× |
 | d3d4 | ¹²C | 1.0 | 1× |
-| d4s | ¹H | **8.0** | **64×** |
-| d4s | ⁴He | 2.0 | 4× |
+| d4s | ¹H | **0.0** | **关闭** |
+| d4s | ⁴He | 1.0 | 1× |
 | d4s | ⁶Li | 1.0 | 1× |
+
+> **设计说明**：所有有效粒子采用等权重（weight=1.0）。¹H 的 weight 设为 0.0 以关闭其对刻度的贡献——¹H 极轻，其能损曲线与重离子（⁴He 及以上）差异较大，高权重下会劣化重离子的刻度精度。当 `weight=0.0` 时，`FillGcaliForLayers` 直接跳过该粒子，不向 gcali 添加数据点。
 
 **应用范围**：Stage 1（FillGcaliForLayers + PidFitFuncStage1）和 Stage 2（FillGcaliForLayers + PidFitFuncStage2）均已完整支持。
 

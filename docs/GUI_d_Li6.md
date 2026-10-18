@@ -135,7 +135,7 @@ Lise++ 参考线：
 | `assets/14O_d_6Li_2+_e_theta.txt` | Lise++ E-θ 参考线（2⁺，10C 和 6Li） |
 | `assets/14O_d_6Li_0+_theta_theta.txt` | Lise++ θ-θ 参考线（0⁺） |
 | `assets/14O_d_6Li_2+_theta_theta.txt` | Lise++ θ-θ 参考线（2⁺） |
-| `beam/beam_<run>.root` | TOF 束流能量文件（仅 14O 模式，按 run 按需读取） |
+| `beam/beam_<run>.root` | TOF 束流能量文件（仅 14O 模式，按 run 按需读取；若数据文件含 `_t1_` 则读 `beam_t1_<run>.root`） |
 | `<energy_calculator>/target_z6_a10_cd2.root` | ¹⁰C 在 CD₂ 靶中的 Range-Energy 缓存 |
 | `<energy_calculator>/target_z3_a6_cd2.root` | ⁶Li 在 CD₂ 靶中的 Range-Energy 缓存 |
 | `<energy_calculator>/target_z8_a14_cd2.root` | ¹⁴O 束流在 CD₂ 靶中的 Range-Energy 缓存（方法一和方法三共用） |
@@ -204,7 +204,7 @@ Lise++ 参考线：
 
 仅当 `g_beam_filter == 1`（14O 模式）且束流 RangeEnergyCalculator 缓存存在时执行。
 
-1. 通过 TOF 读取束流能量 `E_beam_raw`（按 run、entry 查询 `beam/beam_<run>.root`）
+1. 从 `beam/beam_<run>.root`（t1 数据则从 `beam_t1_<run>.root`）按 run、entry 查询逐事件束流能量 `E_beam_raw`（由 `sort_beam` 预计算）
 2. 束流能损修正：`beam_range_rxn = Range(E_beam_raw) - beam_depth`，`E_beam = Energy(beam_range_rxn)`
 3. 构造四动量：
    - `P_A = (p_A * dir_x/norm, p_A * dir_y/norm, p_A * 1/norm, E_A)`（¹⁴O 束流）
@@ -222,20 +222,20 @@ Lise++ 参考线：
 3. `P_10C_star_inv = P_14O_reco + P_d - P_6Li`
 4. `E_x_inv = M(P_10C_star_inv) - m_10C`
 
-### 方法三：Missing Mass — 固定束流能量（所有束流类型）
+### 方法三：Missing Mass — 逐 run 固定束流能量（所有束流类型）
 
-对所有束流类型均执行（不依赖 `g_beam_filter`），使用固定束流能量 **35.6 MeV/u**（对应 ¹⁴O 名义束流能量），无需读取 beam 文件。
+对所有束流类型均执行（不依赖 `g_beam_filter`），从 `beam/check_tof_and_beam_<run>.txt` 读取该 run 的束流能量 E0（由 `check_tof_and_beam` 程序对各 run 束流能量分布做高斯拟合得到），无需读取 beam 文件。
 
-1. `E_beam_fixed = 35.6 × 14 = 498.4 MeV`（动能）
+1. `E_beam_fixed = E0`（从 `check_tof_and_beam_<run>.txt` 读取，单位 MeV 总动能）
 2. 束流能损修正：`beam_range_rxn = Range(E_beam_fixed) - beam_depth`，`E_beam_at_rxn = Energy(beam_range_rxn)`
 3. 构造四动量（与本方法一相同）：
-   - `P_A`：固定能量的 ¹⁴O 束流
+   - `P_A`：逐 run 固定能量的 ¹⁴O 束流
    - `P_B = (0, 0, 0, m_d)`：静止氘靶
    - `P_6Li`：测量的 ⁶Li
 4. `P_10C_star = P_A + P_B - P_6Li`
 5. `E_x_mm_fixed = M(P_10C_star) - m_10C`
 
-> **注意**：方法三在所有束流类型下均用 ¹⁴O 的 35.6 MeV/u 作为近似束流能量，对于 13N、12C 数据属于交叉检验，不作为精确测量。
+> **注意**：方法三在所有束流类型下均用 ¹⁴O 的逐 run 束流能量作为近似，对于 13N、12C 数据属于交叉检验，不作为精确测量。若某 run 的 `check_tof_and_beam_<run>.txt` 不存在，程序将报错退出。
 
 ---
 
@@ -273,10 +273,24 @@ Lise++ 参考线：
 
 ## 束流能量读取
 
-`ReadBeamEnergy(run, entry, beam_dir)` 按需从 `beam/beam_<run>.root` 读取 TOF 束流能量，采用带缓存的惰性加载策略：
+`ReadBeamEnergy(run, entry, beam_dir, use_t1)` 按需从 `beam/beam_<run>.root`（或 `beam/beam_t1_<run>.root`）读取逐事件束流能量，采用带缓存的惰性加载策略。
 
-- 首次访问某个 run 时，打开对应 `beam_<run>.root` 文件并保持打开状态
-- 后续访问同一 run 时直接使用已缓存的 `TTree*`
+### t1 数据兼容
+
+打开文件时通过文件名自动检测 t1 标记：
+
+- 文件名不含 `_t1_`（如 `extract_d_Li6_main_0057_0070.root`）→ `use_t1 = false`，读取 `beam/beam_<run>.root`
+- 文件名含 `_t1_`（如 `extract_d_Li6_t1_0057_0070.root`）→ `use_t1 = true`，读取 `beam/beam_t1_<run>.root`
+
+`ReadFixedBeamEnergy`（逐 run 固定能量）不受影响，始终读取 `check_tof_and_beam_<run>.txt`，因为 TOF 测量偏置 $\Delta t$ 与 trigger 类型无关。
+
+### 缓存策略
+
+缓存 key 为 `std::pair<int, bool>` = `(run, use_t1)`，确保 main 和 t1 版本的束流文件缓存互不干扰。
+
+- 首次访问某个 `(run, use_t1)` 组合时，打开对应 `beam*.root` 文件并保持打开状态
+- 后续访问同一组合时直接使用已缓存的 `TTree*`
+- 若文件不存在，返回 `-1.0`（不 fallback）
 - `BeamFileCache` 结构体使用移动语义管理 `TFile*` 生命周期，确保 map 中的缓存独占文件所有权
 
 ### BeamFileCache 设计

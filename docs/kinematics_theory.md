@@ -505,175 +505,242 @@ $$
 
 ### 3.3 Type 3: 分场景重建 $E_x(C)$ 和 $E_x(F)$
 
-**反应**：$A + B \to C^* + D$, $C^* \to E + F$
+**反应**：$A + B \to C^* + D$, $C^* \to E + F^{(*)}$
 
 **重建目标**：同时得到 $C$ 的激发能 $E_x(C)$ 和 $F$ 的激发能 $E_x(F)$。
 
 **关键物理图像**：
 
-- $C^*$（质量为 $m_{C^*} = m_{C,gs} + E_x(C)$）通过衰变 $C^* \to E + F$ **释放了全部激发能**，衰变产物中 $E$ 始终处于基态。
-- 只有 $F$ 可能处于激发态（$m_F = m_{F,gs} + E_x(F)$），随后 $F^* \to F_{gs} + \gamma$ 放出 $\gamma$ 光子退激。因此整个反应链中，$\gamma$ 光子仅来自 $F$ 的退激。
-- $C^*$ 的质量由 $E$ 和 $F$ 的静质量完全确定：
-  $$
-  m_{C^*} = m_{E,gs} + m_F = m_{E,gs} + m_{F,gs} + E_x(F)
-  $$
+- $C^*$（质量为 $m_{C^*} = m_{C,gs} + E_x(C)$）衰变为 $E$（始终基态）和 $F^{(*)}$（可能处于激发态）。
+- 若 $F$ 处于激发态（$m_{F^*} = m_{F,gs} + E_x(F)$），则 $F^*$ 退激放出 $\gamma$ 光子（$E_\gamma = E_x(F)$）。
+- 探测器实际测量到的是退激后的基态粒子 $F_{gs}$，而非 $F^*$。$\gamma$ 光子通常不被探测器测量。
+- **核心逻辑**：必须先用能量平衡确定 $E_x(F)$，再将 $\gamma$ 光子以完整四动量 $P_\gamma$ 计入不变质量，重建出 $F^*$ 的四动量后才能正确得到 $E_x(C)$。
 
-**重建分为两步**：
+#### $\gamma$ 光子与 $F^*$ 的四动量重建
 
-| 步骤 | 目标 | 方法 | 公式 |
-|:---:|:---|:---|:---|
-| 第一步 | $E_x(C)$ | 不变质量法 | $E_x(C) = M(P_E + P_F) - m_{C,gs}$ |
-| 第二步 | $E_x(F)$ | $Q_0 - Q_1$ 关系 | $E_x(F) = Q_0 - Q_1$ |
+$\gamma$ 光子静质量为零，能量-动量关系为 $|\vec{p}_\gamma| = E_\gamma = E_x(F)$。
 
-其中：
-- $Q_0 = (m_{A,gs} + m_{B,gs}) - (m_{E,gs} + m_{F,gs} + m_D)$：末态粒子**全部基态**时的总反应 Q 值（从质量表直接查表得到）
-- $Q_1 = (m_{A,gs} + m_{B,gs}) - (m_{C^*} + m_D)$：第一步反应 Q 值（需实验测定）
+**共线近似**：$F^*$ 在实验室系中以较高速度运动，其衰变产物 $F_{gs}$ 和 $\gamma$ 经 Lorentz boost 后在实验室系中方向高度集中。取近似 $\vec{p}_\gamma \parallel \vec{p}_{F,gs}$（$\gamma$ 与 $F_{gs}$ 方向一致），即：
 
-**$E_x(F) = Q_0 - Q_1$ 的推导**：
+$$
+\boxed{\vec{p}_\gamma = E_x(F) \cdot \hat{p}_F}, \qquad \hat{p}_F \equiv \frac{\vec{p}_{F,gs}}{|\vec{p}_{F,gs}|}
+$$
 
-将 $m_{C^*} = m_{E,gs} + m_{F,gs} + E_x(F)$ 代入 $Q_1$ 表达式：
+由此直接写出 $F^*$ 的四动量（$F^*$ 在衰变前瞬间）：
+
+$$
+\boxed{P_{F^*} = P_{F,gs} + P_\gamma = \big(E_{F,gs} + E_x(F),\; \vec{p}_{F,gs} + E_x(F)\,\hat{p}_F\big)}
+$$
+
+#### $\gamma$ 光子对不变质量的影响——定量估算
+
+完整的 $C^*$ 四动量为：
+
+$$
+P_{C^*} = P_E + P_{F^*} = P_E + P_{F,gs} + P_\gamma
+$$
+
+其不变质量平方（代入共线近似 $\vec{p}_\gamma = E_x(F)\hat{p}_F$）：
 
 $$
 \begin{aligned}
-Q_0 - Q_1 &= \big[(m_A+m_B) - (m_{E,gs}+m_{F,gs}+m_D)\big] - \big[(m_A+m_B) - (m_{C^*}+m_D)\big] \\
-          &= m_{C^*} - m_{E,gs} - m_{F,gs} \\
-          &= E_x(F)
+M^2(P_{C^*}) &= \big(E_E + E_{F,gs} + E_x(F)\big)^2 - \big|\vec{p}_E + \vec{p}_{F,gs} + E_x(F)\,\hat{p}_F\big|^2 \\[4pt]
+            &= \big[(E_E+E_{F,gs})^2 - |\vec{p}_E+\vec{p}_{F,gs}|^2\big] \\
+            &\quad + 2(E_E+E_{F,gs})E_x(F) + E_x(F)^2
+               - 2(\vec{p}_E+\vec{p}_{F,gs})\cdot(E_x(F)\hat{p}_F) - E_x(F)^2 \\[4pt]
+            &= M_0^2 + 2E_x(F)\Big[E_E + E_{F,gs} - (\vec{p}_E + \vec{p}_{F,gs})\cdot\hat{p}_F\Big]
 \end{aligned}
 $$
 
-等价地：
+其中 $M_0 \equiv M(P_E + P_{F,gs})$（仅用 $E$ 和基态 $F_{gs}$ 计算的不变质量）。$E_x(F)^2$ 项恰好抵消。
+
+令 $\vec{P}_{C^*} \equiv \vec{p}_E + \vec{p}_{F,gs}$（不含 $\gamma$ 的 $C^*$ 动量），$E_{C^*} \equiv E_E + E_{F,gs}$，则：
 
 $$
-\boxed{E_x(F) = M(P_E + P_F) - m_{E,gs} - m_{F,gs}}
+\boxed{M_{\text{correct}} = \sqrt{M_0^2 + 2E_x(F)\big[E_{C^*} - \vec{P}_{C^*}\!\cdot\!\hat{p}_F\big]}}
 $$
 
-两步的共同输入都是 $M(P_E + P_F)$（即 $C^*$ 的不变质量），差别在于第二步还需要 $Q_1$。$Q_1$ 的获取方式取决于是否测量到了轻粒子 $D$，下面分两种场景讨论。
+忽略 $\gamma$（即用 $M_0$ 近似）引入的系统偏差（一阶展开）：
 
-> **关于 $\gamma$ 光子动量**：$F^*$ 退激放出的 $\gamma$ 光子动量为 $p_\gamma = E_x(F)$。在计算 $M(P_E + P_F)$ 时，完整的四动量守恒为 $P_{C^*} = P_E + P_F + P_\gamma$。近似 $\vec{p}_\gamma \approx 0$（$p_\gamma \sim \mathcal{O}(1\text{--}10\,\text{MeV}/c) \ll p_E, p_F \sim \mathcal{O}(10^2\text{--}10^3\,\text{MeV}/c)$），有 $P_{C^*} \approx P_E + P_F$，所引入误差 $\ll 1\%$。
+$$
+\Delta M \equiv M_{\text{correct}} - M_0 \approx \frac{E_x(F)}{M_0}\,\big[E_{C^*} - \vec{P}_{C^*}\!\cdot\!\hat{p}_F\big]
+$$
+
+**数值估算**：以 RIBLL 典型反应为例，$^{14}$O（25 MeV/u，$E_k = 350$ MeV）打氢靶。$C^*$ 在实验室系中 $E_{C^*} \approx \gamma_{cm} m_{C^*} \approx 13300$ MeV，$P_{C^*} \approx \beta_{cm}\gamma_{cm} m_{C^*} \approx 2810$ MeV/c。在逆运动学中 $C^*$ 和 $F$ 均集中在前向，$\vec{P}_{C^*}\!\cdot\!\hat{p}_F \approx P_{C^*}$，故：
+
+$$
+E_{C^*} - \vec{P}_{C^*}\!\cdot\!\hat{p}_F \approx E_{C^*} - P_{C^*} \approx 13300 - 2810 = 10490\;\text{MeV}
+$$
+
+$$
+\frac{E_{C^*} - \vec{P}_{C^*}\!\cdot\!\hat{p}_F}{M_0} \approx \frac{10490}{13000} \approx 0.81
+$$
+
+若 $E_x(F) = 5$ MeV，则 $\Delta M \approx 0.81 \times 5 \approx 4$ MeV。这意味着直接忽略 $\gamma$ 将导致 $E_x(C)$ 出现约 **4 MeV** 的系统偏差——远超核谱学所需的 sub-MeV 精度。
+
+> **物理解释**：$\gamma$ 光子动量 $p_\gamma = E_x(F) \sim \mathcal{O}(1\text{--}10\,\text{MeV}/c)$ 确实很小，但其**能量** $E_\gamma = E_x(F)$ 直接进入 $C^*$ 的总能量，在不变质量的 Minkowski 内积中以 $E_{C^*}E_x(F) - \vec{P}_{C^*}\!\cdot\!\vec{p}_\gamma$ 的形式贡献。在逆运动学中 $E_{C^*} \gg P_{C^*}$，即使动量项部分抵消，净贡献仍可达 $E_x(F)$ 的量级。
 
 ---
 
-#### 场景一：未测量到轻粒子 $D$（仅测量 $E$ 和 $F$）
+#### 场景一：未测量到轻粒子 $D$（仅测量 $E$ 和 $F_{gs}$）
 
-当 $D$ 出射角度过大或能量过低而未被探测器阵列覆盖时，$E_x(C)$ 可照常得到，但 $E_x(F)$ 需要借助束流能量和动量守恒。
+当 $D$ 未被探测器阵列覆盖时，需借助束流能量来确定 $E_x(F)$。
+
+**能量关系推导（动能 $T$ 形式）**：
+
+记 $T_i \equiv E_k(i)$ 为粒子 $i$ 的动能。整体反应 $A+B \to E+F_{gs}+D+\gamma$ 的能量守恒：
+
+$$
+E_A + m_{B,gs} = E_E + E_{F,gs} + E_D + E_\gamma
+$$
+
+将总能量写为动能加静质量，并利用 $E_\gamma = E_x(F)$：
+
+$$
+\begin{aligned}
+(T_A + m_{A,gs}) + m_{B,gs} &= (T_E + m_{E,gs}) + (T_{F,gs} + m_{F,gs}) + (T_D + m_{D,gs}) + E_x(F) \\[4pt]
+T_A &= T_E + T_{F,gs} + T_D + \underbrace{(m_{E,gs}+m_{F,gs}+m_{D,gs} - m_{A,gs} - m_{B,gs})}_{-Q_0} + E_x(F)
+\end{aligned}
+$$
+
+整理得 $E_x(F)$ 的动能差形式：
+
+$$
+\boxed{E_x(F) = T_A + Q_0 - (T_E + T_{F,gs} + T_D)}
+$$
+
+其中 $Q_0 = (m_{A,gs} + m_{B,gs}) - (m_{E,gs} + m_{F,gs} + m_{D,gs})$ 为末态全部基态时的反应 Q 值（由质量表直接给出）。
 
 **重建步骤**：
 
-1. 由 $E$ 和 $F$ 的测量数据构建四动量。完整的末态四动量为 $P_E$、$P_F$ 及 $F^*$ 退激放出的 $P_\gamma = (E_\gamma, \vec{p}_\gamma)$（其中 $E_\gamma = p_\gamma = E_x(F)$）。近似 $\vec{p}_\gamma \approx 0$：
+1. 由测量数据构建 $E$ 和 $F_{gs}$ 的四动量及动能：
    $$
-   P_E = (E_E,\; \vec{p}_E), \quad P_F = (E_F,\; \vec{p}_F)
+   P_E = (E_E,\; \vec{p}_E), \quad T_E = E_E - m_{E,gs}
    $$
-
-2. **得到 $C$ 的激发能**（不变质量法，无需束流能量）：
    $$
-   E_x(C) = M(P_E + P_F) - m_{C,gs}
+   P_{F,gs} = (E_{F,gs},\; \vec{p}_{F,gs}), \quad T_{F,gs} = E_{F,gs} - m_{F,gs}
    $$
 
-3. 由逐事件束流能量构造 $A$ 的四动量。在逆运动学实验中束流有展宽，需针对每个事件从 beam 文件中读取对应的束流能量 $E_{\text{beam}}$（已修正靶内能损至反应点），结合 PPAC 给出的束流方向 $(\hat{x}, \hat{y})$：
+2. 利用束流能量构造入射粒子 $A$ 的四动量：
    $$
-   \begin{aligned}
-   E_A &= E_{\text{beam}} + m_{A,gs} \\
-   p_A &= \sqrt{E_A^2 - m_{A,gs}^2} \\
-   \vec{p}_A &= p_A \cdot \frac{(\hat{x},\; \hat{y},\; 1)}{\sqrt{1 + \hat{x}^2 + \hat{y}^2}}
-   \end{aligned}
+   P_A = (E_A,\; 0, 0, p_A), \quad T_A = E_{\text{beam}}, \quad E_A = T_A + m_{A,gs}
+   $$
+   靶核 $B$ 静止：$P_B = (m_{B,gs},\; 0, 0, 0)$。
+
+3. 由动量守恒反推 $D$ 的动量。注意到 $\vec{p}_\gamma = E_x(F)\hat{p}_F$，但 $E_x(F)$ 尚未知，且 $p_\gamma \sim \mathcal{O}(\text{MeV}/c) \ll p_D$，在此步近似 $\vec{p}_\gamma \approx 0$：
+   $$
+   \vec{p}_{D}^{\text{reco}} = \vec{p}_A - \vec{p}_E - \vec{p}_{F,gs}
    $$
 
-4. 靶核 $B$ 静止于实验室系：
+4. 由在壳条件得 $D$ 的能量与动能（$D$ 始终基态）：
    $$
-   P_B = (m_{B,gs}, 0, 0, 0)
-   $$
-
-5. **动量守恒求反冲 $D$ 的动能**。由三维动量守恒：
-   $$
-   \vec{p}_D = \vec{p}_A - \vec{p}_E - \vec{p}_F
-   $$
-   利用 $D$ 始终处于基态这一条件，由动量求出动能（而非使用四动量减法中可能被 $\gamma$ 光子污染的能量分量）：
-   $$
-   T_D = \sqrt{|\vec{p}_D|^2 + m_{D,gs}^2} - m_{D,gs}
+   E_{D}^{\text{reco}} = \sqrt{|\vec{p}_{D}^{\text{reco}}|^2 + m_{D,gs}^2}, \qquad T_{D}^{\text{reco}} = E_{D}^{\text{reco}} - m_{D,gs}
    $$
 
-6. **由动能差求总反应 $Q$ 值**：
+5. **得到 $F$ 的激发能**（动能差形式）：
    $$
-   Q = T_E + T_F + T_D - T_A, \quad T_A = E_{\text{beam}}
-   $$
-
-7. **得到 $F$ 的激发能**。基态 $Q$ 值 $Q_0$（末态全部基态时的 $Q$ 值）由质量表给出：
-   $$
-   \begin{aligned}
-   Q_0 &= m_{A,gs} - m_{E,gs} - m_{F,gs} \\
-   E_x(F) &= Q_0 - Q
-   \end{aligned}
+   \boxed{E_x(F) = T_A + Q_0 - (T_E + T_{F,gs} + T_{D}^{\text{reco}})}
    $$
 
-> **为何不直接使用四动量减法求 $M_D^{\text{reco}}$？**
->
-> 若照搬传统缺失质量法：$P_D^{\text{reco}} = P_A + P_B - P_E - P_F$，则 $P_D^{\text{reco}}$ 的能量分量 $E_D^{\text{reco}} = E_A + m_{B,gs} - E_E - E_F$ 中**缺少了 $\gamma$ 光子的能量 $E_\gamma = E_x(F)$**（$F^*$ 退激放出的 $\gamma$ 尚未被计入）。直接用这个 $E_D^{\text{reco}}$ 计算不变质量 $M_D^{\text{reco}} = \sqrt{(E_D^{\text{reco}})^2 - |\vec{p}_D|^2}$ 会远超 $m_{D,gs}$，导致 $Q_1$ 和 $E_x(F)$ 的系统性偏差。
->
-> 而三维动量守恒却不受影响：$\vec{p}_A \approx \vec{p}_E + \vec{p}_F + \vec{p}_D$（忽略 $p_\gamma \sim 10^{-3} \times p_{\text{particle}}$）。因此**从三维动量重构 $T_D$，再由动能差求 $Q$ 值**是正确且稳健的做法。
->
-> 此方法等价于 $E_x(F) = Q_0 - Q_1$，其中 $Q_1 = (m_{A,gs} + m_{B,gs}) - (M_{C^*} + m_{D,gs})$ 且 $M_{C^*} = M(P_E + P_F)$（而非 $M(P_D^{\text{reco}})$），即 $E_x(F) = M_{C^*} - m_{E,gs} - m_{F,gs}$。
+6. 构造 $\gamma$ 光子的四动量（共线近似）：
+   $$
+   P_\gamma = \big(E_x(F),\; E_x(F)\,\hat{p}_F\big), \qquad \hat{p}_F = \frac{\vec{p}_{F,gs}}{|\vec{p}_{F,gs}|}
+   $$
 
-> **本项目代码实现（`GUI_10C_4He.cpp`）采用上述动量守恒方法**。
+7. 重建 $F^*$ 四动量并计算 $C^*$ 不变质量：
+   $$
+   P_{F^*} = P_{F,gs} + P_\gamma
+   $$
+
+8. **得到 $C$ 的激发能**：
+   $$
+   \boxed{E_x(C) = M(P_E + P_{F^*}) - m_{C,gs} = M(P_E + P_{F,gs} + P_\gamma) - m_{C,gs}}
+   $$
 
 ---
 
-#### 场景二：测量到了轻粒子 $D$（测量 $E$、$F$ 和 $D$）
+#### 场景二：测量到了轻粒子 $D$（测量 $E$、$F_{gs}$ 和 $D$）
 
-当 $D$ 也在探测器接受度内并被成功测量时，$Q_1$ 可完全不依赖束流能量。
+当 $D$ 也在探测器接受度内时，可完全不依赖束流能量。
+
+**能量关系推导（动能 $T$ 形式）**：
+
+同样从能量守恒出发，但 $T_A$ 不取束流标称值，而是由动量守恒反推：
+
+$$
+T_{A}^{\text{reco}} = E_{A}^{\text{reco}} - m_{A,gs}
+$$
+
+代入前述动能差公式，得：
+
+$$
+\boxed{E_x(F) = T_{A}^{\text{reco}} + Q_0 - (T_E + T_{F,gs} + T_D)}
+$$
 
 **重建步骤**：
 
-1. 由 $E$ 和 $F$ 的测量数据构建四动量（同场景一）。
-
-2. **得到 $C$ 的激发能**（不变质量法）：
+1. 由测量数据构建 $E$、$F_{gs}$、$D$ 的四动量及动能：
    $$
-   E_x(C) = M(P_E + P_F) - m_{C,gs}
-   $$
-
-3. 由 $D$ 的测量数据构建 $P_D$。由于 $D$ 处于基态：
-   $$
-   M(P_D) = m_{D,gs}
+   \begin{aligned}
+   P_E &= (E_E,\; \vec{p}_E), & T_E &= E_E - m_{E,gs} \\
+   P_{F,gs} &= (E_{F,gs},\; \vec{p}_{F,gs}), & T_{F,gs} &= E_{F,gs} - m_{F,gs} \\
+   P_D &= (E_D,\; \vec{p}_D), & T_D &= E_D - m_{D,gs}
+   \end{aligned}
    $$
 
-4. 利用动量守恒反推 $A$ 的四动量（不依赖 $E_{\text{beam}}$）。完整的动量守恒为 $\vec{p}_A = \vec{p}_E + \vec{p}_F + \vec{p}_D + \vec{p}_\gamma$，近似 $\vec{p}_\gamma \approx 0$：
+2. 利用动量守恒反推 $A$ 的动量（不依赖 $E_{\text{beam}}$；$\vec{p}_\gamma$ 在反推 $D$ 时已近似为 0，此处同理近似 $\vec{p}_\gamma \approx 0$）：
    $$
-   \vec{p}_{A}^{\text{reco}} = \vec{p}_E + \vec{p}_F + \vec{p}_D
-   $$
-   $$
-   E_{A}^{\text{reco}} = \sqrt{|\vec{p}_{A}^{\text{reco}}|^2 + m_{A,gs}^2}
+   \vec{p}_{A}^{\text{reco}} = \vec{p}_E + \vec{p}_{F,gs} + \vec{p}_D
    $$
 
-5. 由第一步反应得到 $Q_1$（无需束流能量）：
+3. 由在壳条件反推 $A$ 的能量与动能（$A$ 始终基态）：
    $$
-   Q_1 = (m_{A,gs} + m_{B,gs}) - \big(M(P_E + P_F) + M(P_D)\big)
+   E_{A}^{\text{reco}} = \sqrt{|\vec{p}_{A}^{\text{reco}}|^2 + m_{A,gs}^2}, \qquad T_{A}^{\text{reco}} = E_{A}^{\text{reco}} - m_{A,gs}
    $$
 
-6. **得到 $F$ 的激发能**：
+4. **得到 $F$ 的激发能**（动能差形式，不依赖束流能量）：
    $$
-   E_x(F) = Q_0 - Q_1
+   \boxed{E_x(F) = T_{A}^{\text{reco}} + Q_0 - (T_E + T_{F,gs} + T_D)}
+   $$
+
+5. 构造 $\gamma$ 光子的四动量（共线近似）：
+   $$
+   P_\gamma = \big(E_x(F),\; E_x(F)\,\hat{p}_F\big), \qquad \hat{p}_F = \frac{\vec{p}_{F,gs}}{|\vec{p}_{F,gs}|}
+   $$
+
+6. 重建 $F^*$ 四动量：
+   $$
+   P_{F^*} = P_{F,gs} + P_\gamma
+   $$
+
+7. **得到 $C$ 的激发能**：
+   $$
+   \boxed{E_x(C) = M(P_E + P_{F^*}) - m_{C,gs} = M(P_E + P_{F,gs} + P_\gamma) - m_{C,gs}}
    $$
 
 **场景二优缺点**：
-- **优点**：不依赖束流能量，规避能散误差；可利用 $D$ 的测量进行交叉检验
+- **优点**：不依赖束流能量，完全规避束流能散；可利用 $D$ 的测量进行交叉检验
 - **缺点**：要求 $D$ 也在探测器接受度内
 
 ---
 
 ### 3.4 重建方法总结
 
-| 反应类型 | 重建目标 | 主要方法 | 是否需要 $E_{\text{beam}}$ | $\gamma$ 近似 |
+| 反应类型 | 重建目标 | 主要方法 | 是否需要 $E_{\text{beam}}$ | $\gamma$ 处理 |
 |:---:|:---|:---|:---:|:---|
 | Type 1 | $E_x(A)$ | 不变质量法 $M(B+C) - m_{A,gs}$ | 否 | 无 $\gamma$ |
 | Type 2 | $E_x(C)$ | 缺失质量法（动量守恒反推束流） | 否（方法二） | 忽略 $C^* \to C_{gs}+\gamma$ 的 $\gamma$ 动量 |
-| Type 3（缺 $D$） | $E_x(C)$ + $E_x(F)$ | ①不变质量法 $\to E_x(C)$，②三维动量守恒 $\vec{p}_D=\vec{p}_A-\vec{p}_E-\vec{p}_F \to T_D \to Q \to E_x(F)=Q_0-Q$ | **是**（仅第②步） | 忽略 $F^* \to F_{gs}+\gamma$ 的 $\gamma$ 动量 |
-| Type 3（有 $D$） | $E_x(C)$ + $E_x(F)$ | ①不变质量法 $\to E_x(C)$，②$Q_0 - Q_1 \to E_x(F)$（动量守恒得 $Q_1$） | 否 | 忽略 $F^* \to F_{gs}+\gamma$ 的 $\gamma$ 动量 |
+| Type 3（缺 $D$） | ①$E_x(F)$ ②$E_x(C)$ | ①$E_x(F) = T_A + Q_0 - \sum T_f$（需 $E_{\text{beam}}$），②$P_{F^*}=P_{F,gs}+P_\gamma$，不变质量得 $E_x(C)$ | **是**（仅第①步） | 共线近似 $\vec{p}_\gamma \parallel \vec{p}_{F,gs}$，$P_\gamma=(E_x(F),E_x(F)\hat{p}_F)$ |
+| Type 3（有 $D$） | ①$E_x(F)$ ②$E_x(C)$ | ①动量守恒反推 $T_A^{\text{reco}}$ + $E_x(F) = T_A^{\text{reco}} + Q_0 - \sum T_f$，②$P_{F^*}=P_{F,gs}+P_\gamma$，不变质量得 $E_x(C)$ | 否 | 共线近似 $\vec{p}_\gamma \parallel \vec{p}_{F,gs}$，$P_\gamma=(E_x(F),E_x(F)\hat{p}_F)$ |
 
 > **核心原则总结**：
 >
 > - **Type 1** 最为直接：测量两个衰变产物，不变质量即得激发能。
 > - **Type 2** 的关键技巧是用 $\vec{p}_C + \vec{p}_D$ 反推 $\vec{p}_A$，从而避开束流能散（$\sim \text{MeV}$）引入的系统误差。$C^*$ 退激放出的 $\gamma$ 动量被忽略。
-> - **Type 3** 需同时重建两个激发能：第一步用不变质量法得 $E_x(C) = M(P_E+P_F) - m_{C,gs}$；第二步（场景一，缺 $D$）用三维动量守恒求 $T_D = \sqrt{|\vec{p}_D|^2 + m_{D,gs}^2} - m_{D,gs}$，再由动能差求 $Q$ 值，得 $E_x(F) = Q_0 - Q$。$C^*$ 已通过衰变释放全部激发能，$\gamma$ 仅来自 $F^* \to F_{gs} + \gamma$ 且其动量被忽略。
-> - 所有涉及 $\gamma$ 退激的场景中，$p_\gamma \sim \mathcal{O}(1\,\text{MeV}/c) \ll p_{\text{particle}} \sim \mathcal{O}(10^2\,\text{MeV}/c)$，忽略引入的误差 $\ll 1\%$。
+> - **Type 3** 的正确重建顺序是**先求 $E_x(F)$，再求 $E_x(C)$**：
+>   1. 利用动能差公式 $E_x(F) = T_A + Q_0 - (T_E + T_{F,gs} + T_D)$ 确定 $F$ 的激发能（场景一 $T_A$ 取束流标称值、$T_D$ 由动量守恒反推；场景二所有 $T$ 由测量或动量守恒反推）；
+>   2. 以共线近似 $\vec{p}_\gamma = E_x(F)\hat{p}_F$ 构造 $\gamma$ 光子四动量 $P_\gamma$，重建 $P_{F^*} = P_{F,gs} + P_\gamma$，计算 $E_x(C) = M(P_E + P_{F^*}) - m_{C,gs}$。
+> - 在 Type 3 中，$\gamma$ 光子动量 $p_\gamma = E_x(F) \sim \mathcal{O}(\text{MeV}/c)$ 在反推 $D$ 或 $A$ 的动量时可近似为零（误差可忽略），但其**能量和动量均需计入不变质量计算**：忽略将导致 $E_x(C)$ 偏差 $\approx 0.8\,E_x(F) \sim \mathcal{O}(\text{MeV})$，对核谱学不可接受。
 
 ---
 

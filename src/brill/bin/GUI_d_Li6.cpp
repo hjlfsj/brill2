@@ -21,6 +21,7 @@
 #include <TGMenu.h>
 #include <TGNumberEntry.h>
 #include <TGStatusBar.h>
+#include <fstream>
 #include <TGraph.h>
 #include <TH2D.h>
 #include <TPad.h>
@@ -87,6 +88,7 @@ struct GUIContext {
 	std::string d_Li6_dir;
 	std::string beam_dir;
 	std::string assets_dir;
+	bool is_t1 = false;
 	brill::AppConfig config;
 	std::vector<brill::D6LiEvent> all_events;
 };
@@ -143,22 +145,24 @@ struct BeamFileCache {
 	BeamFileCache(const BeamFileCache&) = delete;
 	BeamFileCache& operator=(const BeamFileCache&) = delete;
 };
-static std::map<int, BeamFileCache> g_beam_cache;
+static std::map<std::pair<int, bool>, BeamFileCache> g_beam_cache;
 
-static double ReadBeamEnergy(int run, Long64_t entry, const std::string &beam_dir) {
-	auto it = g_beam_cache.find(run);
+static double ReadBeamEnergy(int run, Long64_t entry, const std::string &beam_dir, bool use_t1) {
+	auto key = std::make_pair(run, use_t1);
+	auto it = g_beam_cache.find(key);
 	if (it == g_beam_cache.end()) {
-		TString path = TString::Format("%s/beam_%04d.root", beam_dir.c_str(), run);
+		TString path = TString::Format("%s/beam_%s%04d.root", beam_dir.c_str(),
+			use_t1 ? "t1_" : "", run);
 		TFile *f = TFile::Open(path);
 		if (!f || f->IsZombie()) {
 			if (f) delete f;
-			g_beam_cache[run] = {};
+			g_beam_cache[key] = {};
 			return -1.0;
 		}
 		TTree *t = (TTree*)f->Get("tree");
 		if (!t) {
 			f->Close(); delete f;
-			g_beam_cache[run] = {};
+			g_beam_cache[key] = {};
 			return -1.0;
 		}
 		BeamFileCache cache;
@@ -167,17 +171,48 @@ static double ReadBeamEnergy(int run, Long64_t entry, const std::string &beam_di
 		cache.run = run;
 		if (!t->GetBranch("E")) {
 			f->Close(); delete f;
-			g_beam_cache[run] = {};
+			g_beam_cache[key] = {};
 			return -1.0;
 		}
-		g_beam_cache[run] = std::move(cache);
-		it = g_beam_cache.find(run);
+		g_beam_cache[key] = std::move(cache);
+		it = g_beam_cache.find(key);
 		it->second.tree->SetBranchAddress("E", &it->second.E_beam);
 	}
 	Long64_t max_entries = it->second.tree->GetEntries();
 	if (!it->second.tree || entry < 0 || entry >= max_entries) return -1.0;
 	it->second.tree->GetEntry(entry);
 	return it->second.E_beam;
+}
+
+static std::map<int, double> g_fixed_beam_cache;
+
+static double ReadFixedBeamEnergy(int run, const std::string &beam_dir) {
+	auto it = g_fixed_beam_cache.find(run);
+	if (it != g_fixed_beam_cache.end()) return it->second;
+
+	TString path = TString::Format("%s/check_tof_and_beam_%04d.txt", beam_dir.c_str(), run);
+	std::ifstream fin(path.Data());
+	if (!fin.is_open()) {
+		fprintf(stderr,
+			"Error: per-run beam energy file not found: %s\n"
+			"  Please run 'check_tof_and_beam -r %d' first to generate it.\n",
+			path.Data(), run);
+		exit(1);
+	}
+
+	std::string header;
+	std::getline(fin, header);
+	double E0 = -1.0, sigma_E = 0.0, t0 = 0.0, sigma_t0 = 0.0, dt = 0.0;
+	fin >> E0 >> sigma_E >> t0 >> sigma_t0 >> dt;
+	fin.close();
+
+	if (E0 <= 0) {
+		fprintf(stderr, "Error: invalid beam energy E0=%.4f in %s\n", E0, path.Data());
+		exit(1);
+	}
+
+	g_fixed_beam_cache[run] = E0;
+	return E0;
 }
 
 static void RebuildHistograms() {
@@ -267,7 +302,7 @@ static void RebuildExcitationHistograms() {
 
 	ec.h_excitation_mm_fixed = new TH1D(
 		"h_excitation_mm_fixed",
-		TString::Format("^{10}C Excitation (miss.mass, E_{b}=35.6 MeV/u);E_{x} (MeV);%s",
+		TString::Format("^{10}C Excitation (miss.mass, per-run E_{b});E_{x} (MeV);%s",
 			bin_label.Data()),
 		nbins, -10, 20);
 	ec.h_excitation_mm_fixed->SetDirectory(0);
@@ -431,7 +466,7 @@ static void FillAnalysisHistograms(TCutG *cut) {
 
 		// === Method 1: missing mass with TOF beam energy (14O only) ===
 		if (g_beam_filter == 1 && s_beam_calc_ok) {
-			double E_beam_raw = ReadBeamEnergy(ev.run_number, ev.entry, g_ctx.beam_dir);
+			double E_beam_raw = ReadBeamEnergy(ev.run_number, ev.entry, g_ctx.beam_dir, g_ctx.is_t1);
 			if (E_beam_raw > 0) {
 				double norm_beam = std::sqrt(1.0 + ev.dir_x * ev.dir_x + ev.dir_y * ev.dir_y);
 				double beam_depth = (half_thick_um + z) * norm_beam;
@@ -453,9 +488,9 @@ static void FillAnalysisHistograms(TCutG *cut) {
 			}
 		}
 
-		// === Method 3: missing mass with fixed beam energy 35.6 MeV/u (all beams) ===
+		// === Method 3: missing mass with per-run fixed beam energy (all beams) ===
 		if (s_beam_calc_ok) {
-			double E_beam_fixed = 35.6 * 14;
+			double E_beam_fixed = ReadFixedBeamEnergy(ev.run_number, g_ctx.beam_dir);
 			double norm_beam = std::sqrt(1.0 + ev.dir_x * ev.dir_x + ev.dir_y * ev.dir_y);
 			double beam_depth = (half_thick_um + z) * norm_beam;
 			double beam_range_before = s_beam_calc->Range(E_beam_fixed);
@@ -599,6 +634,7 @@ void OnFileOpen() {
 
 	std::string filepath = fi.fFilename;
 	g_ctx.current_file = filepath;
+	g_ctx.is_t1 = (filepath.find("_t1_") != std::string::npos);
 	printf("Opening file: %s\n", filepath.c_str());
 
 	TFile *input_file = new TFile(filepath.c_str(), "read");

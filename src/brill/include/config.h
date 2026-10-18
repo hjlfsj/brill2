@@ -107,6 +107,7 @@ struct AppPaths {
 	std::string d_Li6 = "d_Li6";
 	std::string c10_he4 = "10C+4He";
 	std::string c12_d_6Li = "C12_d_6Li";
+	std::string three_alpha = "three_alpha";
 	std::string beam = "beam";
 };
 

@@ -235,6 +235,39 @@ target_link_libraries(
 	ROOT::Hist
 )
 
+add_executable(extract_three_alpha three_alpha/extract_three_alpha.cpp)
+target_link_libraries(
+	extract_three_alpha
+	PRIVATE
+	config
+	t0_calibrate_utils
+	dssd_match_event
+	ppac_track
+	beam_sort
+	three_alpha_event
+	three_alpha_extract
+	physics
+	energy_calculator
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+)
+
+add_executable(GUI_three_alpha three_alpha/GUI_three_alpha.cpp)
+target_link_libraries(
+	GUI_three_alpha
+	PRIVATE
+	config
+	three_alpha_event
+	rebuild_physics
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gui
+	ROOT::Physics
+)
+
 add_executable(GUI_12C_d_6Li GUI_12C_d_6Li.cpp)
 target_link_libraries(
 	GUI_12C_d_6Li

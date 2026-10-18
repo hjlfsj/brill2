@@ -21,6 +21,7 @@
 #include <TGLabel.h>
 #include <TGNumberEntry.h>
 #include <TGStatusBar.h>
+#include <TF1.h>
 #include <TH1D.h>
 #include <TH2D.h>
 #include <TPad.h>
@@ -34,6 +35,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -73,6 +75,21 @@ struct ExcitationCanvas {
 	TH1D *h_excitation_10C = nullptr;
 	TH1D *h_14O_gate1 = nullptr;
 	TH1D *h_14O_gate2 = nullptr;
+	TH2D *h_recoil_ep = nullptr;
+};
+
+struct ExcitationCanvasFixed {
+	TCanvas *canvas = nullptr;
+	TH1D *h_excitation_10C = nullptr;
+	TH1D *h_14O_gate1 = nullptr;
+	TH1D *h_14O_gate2 = nullptr;
+	TH2D *h_recoil_ep = nullptr;
+};
+
+struct Window6Canvas {
+	TCanvas *canvas = nullptr;
+	TH1D *h_missing_mass = nullptr;
+	TH1D *h_inversion = nullptr;
 };
 
 struct GUIContext {
@@ -97,12 +114,16 @@ struct GUIContext {
 	FilteredCanvases fcs;
 	AnalysisCanvas ac;
 	ExcitationCanvas ec;
+	ExcitationCanvasFixed ec_fixed;
+
+	Window6Canvas w6;
 
 	std::string current_file;
 	std::string config_path;
 	std::string c10_he4_dir;
 	std::string beam_dir;
 	std::string trigger;
+	bool is_t1 = false;
 	brill::AppConfig config;
 	std::vector<brill::C10He4Event> all_events;
 
@@ -118,46 +139,78 @@ struct BeamFileCache {
 	double E = -1.0;
 };
 
-static std::map<int, BeamFileCache> g_beam_cache;
+static std::map<std::pair<int, bool>, BeamFileCache> g_beam_cache;
 
-static double ReadBeamEnergy(int run, Long64_t entry, const std::string &beam_dir) {
-	auto it = g_beam_cache.find(run);
-	BeamFileCache *cache = nullptr;
+static double ReadBeamEnergy(int run, Long64_t entry, const std::string &beam_dir, bool use_t1) {
+	auto &cache = g_beam_cache[{run, use_t1}];
 
-	if (it != g_beam_cache.end()) {
-		cache = &it->second;
-	} else {
-		TString beam_path = TString::Format("%s/beam_%04d.root",
-			beam_dir.c_str(), run);
+	if (!cache.tree) {
+		TString beam_path = TString::Format("%s/beam_%s%04d.root",
+			beam_dir.c_str(),
+			use_t1 ? "t1_" : "",
+			run);
 		if (!std::filesystem::exists(beam_path.Data())) {
 			fprintf(stderr, "Warning: beam file not found: %s\n", beam_path.Data());
 			return -1.0;
 		}
-		BeamFileCache new_cache;
-		new_cache.file = new TFile(beam_path, "read");
-		new_cache.tree = (TTree*)new_cache.file->Get("tree");
-		if (!new_cache.tree) {
+		cache.file = new TFile(beam_path, "read");
+		cache.tree = (TTree*)cache.file->Get("tree");
+		if (!cache.tree) {
 			fprintf(stderr, "Warning: no tree in %s\n", beam_path.Data());
-			delete new_cache.file;
+			delete cache.file;
+			cache.file = nullptr;
 			return -1.0;
 		}
-		if (!new_cache.tree->GetBranch("E")) {
+		if (!cache.tree->GetBranch("E")) {
 			fprintf(stderr, "Warning: no E branch in %s\n", beam_path.Data());
-			delete new_cache.file;
+			delete cache.file;
+			cache.file = nullptr;
+			cache.tree = nullptr;
 			return -1.0;
 		}
-		g_beam_cache[run] = new_cache;
-		cache = &g_beam_cache[run];
-		cache->tree->SetBranchAddress("E", &cache->E);
+		cache.tree->SetBranchAddress("E", &cache.E);
 	}
 
-	Long64_t n_entries = cache->tree->GetEntries();
+	Long64_t n_entries = cache.tree->GetEntries();
 	if (entry < 0 || entry >= n_entries) {
 		return -1.0;
 	}
 
-	cache->tree->GetEntry(entry);
-	return cache->E;
+	cache.tree->GetEntry(entry);
+	return cache.E;
+}
+
+static std::map<int, double> g_fixed_beam_cache;
+
+static double ReadFixedBeamEnergy(int run, const std::string &beam_dir) {
+	auto it = g_fixed_beam_cache.find(run);
+	if (it != g_fixed_beam_cache.end()) return it->second;
+
+	TString path = TString::Format("%s/check_tof_and_beam_%04d.txt",
+		beam_dir.c_str(), run);
+	std::ifstream fin(path.Data());
+	if (!fin.is_open()) {
+		fprintf(stderr,
+			"Error: per-run beam energy file not found: %s\n"
+			"  Please run 'check_tof_and_beam -r %d' first to generate it.\n",
+			path.Data(), run);
+		return -1.0;
+	}
+
+	std::string header;
+	std::getline(fin, header);
+	double E0 = -1.0, sigma_E = 0.0, t0 = 0.0, sigma_t0 = 0.0, dt = 0.0;
+	fin >> E0 >> sigma_E >> t0 >> sigma_t0 >> dt;
+	fin.close();
+
+	if (E0 <= 0) {
+		fprintf(stderr, "Error: invalid beam energy E0=%.4f in %s\n",
+			E0, path.Data());
+		return -1.0;
+	}
+
+	g_fixed_beam_cache[run] = E0;
+	return E0;
 }
 
 static GUIContext g_ctx;
@@ -296,7 +349,7 @@ static void RebuildAnalysisHistograms() {
 		20, 0, 20, 30, 0, 30);
 	ac.h_theta_theta->SetDirectory(0);
 	int nbins = g_ctx.entry_excitation_bins
-		? g_ctx.entry_excitation_bins->GetIntNumber() : 200;
+		? g_ctx.entry_excitation_bins->GetIntNumber() : 100;
 	if (nbins < 10) nbins = 10;
 	double bin_keV = 20000.0 / nbins;
 	ac.h_excitation = new TH1D(
@@ -312,15 +365,22 @@ static void RebuildExcitationHistogram() {
 	if (ec.h_excitation_10C) delete ec.h_excitation_10C;
 	if (ec.h_14O_gate1) delete ec.h_14O_gate1;
 	if (ec.h_14O_gate2) delete ec.h_14O_gate2;
+	if (ec.h_recoil_ep) delete ec.h_recoil_ep;
 
 	ec.h_excitation_10C = new TH1D(
 		"h_excitation_10C",
 		"^{10}C Excitation Energy (^{14}O beam);E_{x}(^{10}C) (MeV);Counts",
-		50, -10, 40);
+		100, -20, 80);
 	ec.h_excitation_10C->SetDirectory(0);
 
+	ec.h_recoil_ep = new TH2D(
+		"h_recoil_ep",
+		"Recoil E-P (^{14}O beam);p^{2}_{D} / 2u (MeV);T_{beam} - T_{10C} - T_{4He} (MeV)",
+		200, 0, 200, 200, 0, 200);
+	ec.h_recoil_ep->SetDirectory(0);
+
 	int nbins = g_ctx.entry_excitation_bins
-		? g_ctx.entry_excitation_bins->GetIntNumber() : 200;
+		? g_ctx.entry_excitation_bins->GetIntNumber() : 100;
 	if (nbins < 10) nbins = 10;
 	double bin_keV = 20000.0 / nbins;
 
@@ -341,6 +401,60 @@ static void RebuildExcitationHistogram() {
 			bin_keV),
 		nbins, 5, 25);
 	ec.h_14O_gate2->SetDirectory(0);
+
+	auto &ecf = g_ctx.ec_fixed;
+	if (ecf.h_excitation_10C) delete ecf.h_excitation_10C;
+	if (ecf.h_14O_gate1) delete ecf.h_14O_gate1;
+	if (ecf.h_14O_gate2) delete ecf.h_14O_gate2;
+	if (ecf.h_recoil_ep) delete ecf.h_recoil_ep;
+
+	ecf.h_excitation_10C = new TH1D(
+		"h_excitation_10C_fixed",
+		"^{10}C E_{x} (^{14}O beam, E0 fixed);E_{x}(^{10}C) (MeV);Counts",
+		100, -20, 80);
+	ecf.h_excitation_10C->SetDirectory(0);
+
+	ecf.h_recoil_ep = new TH2D(
+		"h_recoil_ep_fixed",
+		"Recoil E-P (^{14}O beam, E0 fixed);p^{2}_{D} / 2u (MeV);T_{beam} - T_{10C} - T_{4He} (MeV)",
+		200, 0, 200, 200, 0, 200);
+	ecf.h_recoil_ep->SetDirectory(0);
+
+	ecf.h_14O_gate1 = new TH1D(
+		"h_14O_gate1_fixed",
+		TString::Format("^{14}O E_{x} (^{10}C gate [%.0f, %.0f], E0 fixed);E_{x}(^{14}O) (MeV);Counts / %.0f keV",
+			g_ctx.entry_x1 ? g_ctx.entry_x1->GetNumber() : -2,
+			g_ctx.entry_x2 ? g_ctx.entry_x2->GetNumber() : 2,
+			bin_keV),
+		nbins, 5, 25);
+	ecf.h_14O_gate1->SetDirectory(0);
+
+	ecf.h_14O_gate2 = new TH1D(
+		"h_14O_gate2_fixed",
+		TString::Format("^{14}O E_{x} (^{10}C gate [%.0f, %.0f], E0 fixed);E_{x}(^{14}O) (MeV);Counts / %.0f keV",
+			g_ctx.entry_x2 ? g_ctx.entry_x2->GetNumber() : 2,
+			g_ctx.entry_x3 ? g_ctx.entry_x3->GetNumber() : 7,
+			bin_keV),
+		nbins, 5, 25);
+	ecf.h_14O_gate2->SetDirectory(0);
+}
+
+static void RebuildWindow6Histogram() {
+	auto &w6 = g_ctx.w6;
+	if (w6.h_missing_mass) delete w6.h_missing_mass;
+	if (w6.h_inversion) delete w6.h_inversion;
+
+	w6.h_missing_mass = new TH1D(
+		"h_missing_mass",
+		"^{14}O E_{x} (missing mass via P_{d}+P_{10C}+P_{4He});E_{x}(^{14}O) (MeV);Counts",
+		200, -10, 40);
+	w6.h_missing_mass->SetDirectory(0);
+
+	w6.h_inversion = new TH1D(
+		"h_inversion",
+		"^{10}C E_{x} (inversion from missing-mass E_{x}(^{14}O));E_{x}(^{10}C) (MeV);Counts",
+		200, -10, 40);
+	w6.h_inversion->SetDirectory(0);
 }
 
 static void FillAllHistograms() {
@@ -426,6 +540,7 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 
 	if (g_beam_filter == 1) {
 		RebuildExcitationHistogram();
+		RebuildWindow6Histogram();
 	}
 
 	if (g_ctx.all_events.empty()) return;
@@ -504,11 +619,12 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 		ac.h_10C_e_theta->Fill(ev.theta_10C, T_10C);
 		ac.h_4He_e_theta->Fill(ev.theta_4He, T_4He);
 		ac.h_theta_theta->Fill(ev.theta_10C, ev.theta_4He);
-		ac.h_excitation->Fill(E_x);
+
+		bool filled_14O_ex = false;
 
 		if (g_beam_filter == 1) {
 			static long long ex_cnt = 0;
-			double E_beam_raw = ReadBeamEnergy(ev.run_number, ev.entry, g_ctx.beam_dir);
+			double E_beam_raw = ReadBeamEnergy(ev.run_number, ev.entry, g_ctx.beam_dir, g_ctx.is_t1);
 			if (E_beam_raw > 0) {
 				ex_cnt++;
 
@@ -573,24 +689,127 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 				double p_D_sq = p_D.Mag2();
 				double T_D = std::sqrt(p_D_sq + m_d * m_d) - m_d;
 
+				TLorentzVector P_A(p_A_vec, E_A);
+				TLorentzVector P_d_target(0, 0, 0, m_d);
+				TLorentzVector P_D_4(p_D, m_d + T_D);
+				TLorentzVector P_14O_miss = P_A + P_d_target - P_D_4;
+				double E_x_14O_mm = P_14O_miss.M() - m_14O;
+				auto &w6 = g_ctx.w6;
+				w6.h_missing_mass->Fill(E_x_14O_mm);
+
+				double M_inv_mm = m_14O + E_x_14O_mm;
+				double M0_sq = (P_10C + P_4He).M2();
+				TVector3 p_10C_vec = P_10C.Vect();
+				TVector3 p_4He_vec = P_4He.Vect();
+				TVector3 p_10C_hat = p_10C_vec.Unit();
+				double denom = 2.0 * (E_10C + E_4He - (p_10C_vec + p_4He_vec).Dot(p_10C_hat));
+				double E_gamma_inv = (M_inv_mm * M_inv_mm - M0_sq) / denom;
+				w6.h_inversion->Fill(E_gamma_inv);
+
 				double Q = T_10C_corr + T_4He_corr + T_D - E_beam;
 				double Q0 = m_14O - m_4He - m_10C;
 				double E_x_10C = Q0 - Q;
 
 				g_ctx.ec.h_excitation_10C->Fill(E_x_10C);
+				g_ctx.ec.h_recoil_ep->Fill(
+					p_D_sq / (2.0 * 931.494),
+					E_beam - T_10C_corr - T_4He_corr);
 
 				double x1 = g_ctx.entry_x1->GetNumber();
 				double x2 = g_ctx.entry_x2->GetNumber();
 				double x3 = g_ctx.entry_x3->GetNumber();
-				if (E_x_10C >= x1 && E_x_10C <= x2)
-					g_ctx.ec.h_14O_gate1->Fill(E_x);
-				if (E_x_10C >= x2 && E_x_10C <= x3)
-					g_ctx.ec.h_14O_gate2->Fill(E_x);
+
+				bool in_gate1 = (E_x_10C >= x1 && E_x_10C <= x2);
+				bool in_gate2 = (E_x_10C >= x2 && E_x_10C <= x3);
+
+				double gamma_E = -1.0;
+				if (in_gate1) {
+					gamma_E = 0.0;
+				} else if (in_gate2) {
+					gamma_E = 3.35;
+				}
+
+				if (gamma_E >= 0.0) {
+					TVector3 p_10C_hat = P_10C.Vect().Unit();
+					TLorentzVector P_gamma(
+						p_10C_hat.X() * gamma_E,
+						p_10C_hat.Y() * gamma_E,
+						p_10C_hat.Z() * gamma_E,
+						gamma_E);
+					TLorentzVector P_10C_star = P_10C + P_gamma;
+					TLorentzVector P_14O_reco = P_10C_star + P_4He;
+					double E_x_14O_corr = P_14O_reco.M() - m_14O;
+
+					ac.h_excitation->Fill(E_x_14O_corr);
+					filled_14O_ex = true;
+
+					if (in_gate1)
+						g_ctx.ec.h_14O_gate1->Fill(E_x_14O_corr);
+					if (in_gate2)
+						g_ctx.ec.h_14O_gate2->Fill(E_x_14O_corr);
+				}
+
+				double E_beam_fixed = ReadFixedBeamEnergy(ev.run_number, g_ctx.beam_dir);
+				if (E_beam_fixed > 0) {
+					double beam_range_before_f = beam_calc.Range(E_beam_fixed);
+					double beam_range_rxn_f = beam_range_before_f - beam_depth;
+					double E_beam_f = beam_range_rxn_f > 0
+						? beam_calc.Energy(beam_range_rxn_f) : E_beam_fixed;
+
+					double E_A_f = E_beam_f + m_14O;
+					double p_A_mag_f = std::sqrt(E_A_f * E_A_f - m_14O * m_14O);
+					TVector3 p_A_vec_f(p_A_mag_f * beam_dir.X(),
+						p_A_mag_f * beam_dir.Y(),
+						p_A_mag_f * beam_dir.Z());
+					TVector3 p_D_f = p_A_vec_f - P_10C.Vect() - P_4He.Vect();
+					double p_D_sq_f = p_D_f.Mag2();
+					double T_D_f = std::sqrt(p_D_sq_f + m_d * m_d) - m_d;
+
+					double Q_f = T_10C_corr + T_4He_corr + T_D_f - E_beam_f;
+					double E_x_10C_f = Q0 - Q_f;
+
+					auto &ecf = g_ctx.ec_fixed;
+					ecf.h_excitation_10C->Fill(E_x_10C_f);
+					ecf.h_recoil_ep->Fill(
+						p_D_sq_f / (2.0 * 931.494),
+						E_beam_f - T_10C_corr - T_4He_corr);
+
+					bool in_gate1_f = (E_x_10C_f >= x1 && E_x_10C_f <= x2);
+					bool in_gate2_f = (E_x_10C_f >= x2 && E_x_10C_f <= x3);
+
+					double gamma_E_f = -1.0;
+					if (in_gate1_f) {
+						gamma_E_f = 0.0;
+					} else if (in_gate2_f) {
+						gamma_E_f = 3.35;
+					}
+
+					if (gamma_E_f >= 0.0) {
+						TVector3 p_10C_hat_f = P_10C.Vect().Unit();
+						TLorentzVector P_gamma_f(
+							p_10C_hat_f.X() * gamma_E_f,
+							p_10C_hat_f.Y() * gamma_E_f,
+							p_10C_hat_f.Z() * gamma_E_f,
+							gamma_E_f);
+						TLorentzVector P_10C_star_f = P_10C + P_gamma_f;
+						TLorentzVector P_14O_reco_f = P_10C_star_f + P_4He;
+						double E_x_14O_corr_f = P_14O_reco_f.M() - m_14O;
+
+						if (in_gate1_f)
+							ecf.h_14O_gate1->Fill(E_x_14O_corr_f);
+						if (in_gate2_f)
+							ecf.h_14O_gate2->Fill(E_x_14O_corr_f);
+					}
+				}
 
 				if (ex_cnt % 10000 == 0)
 					printf("\r  [10CEx] event=%lld E_x(10C)=%.2f MeV",
 						ex_cnt, E_x_10C);
 			}
+		}
+
+		if (!filled_14O_ex) {
+			ac.h_excitation->Fill(E_x);
 		}
 	}
 
@@ -656,7 +875,18 @@ static void DrawAnalysisHistograms() {
 	ac.canvas->cd(3);
 	ac.h_theta_theta->Draw("colz");
 	ac.canvas->cd(4);
-	ac.h_excitation->Draw();
+	auto &ec = g_ctx.ec;
+	if (ec.h_recoil_ep) {
+		ec.h_recoil_ep->Draw("colz");
+		TF1 *f1 = new TF1("f_y_eq_x", "x + 10.12", 0, 200);
+		f1->SetLineColor(kRed);
+		f1->SetLineWidth(2);
+		f1->Draw("SAME");
+		TF1 *f2 = new TF1("f_y_eq_halfx", "0.5*x + 10.12", 0, 200);
+		f2->SetLineColor(kBlue);
+		f2->SetLineWidth(2);
+		f2->Draw("SAME");
+	}
 	ac.canvas->Modified();
 	ac.canvas->Update();
 }
@@ -669,6 +899,9 @@ static void DrawExcitationHistogram() {
 	ec.canvas->Divide(2, 2);
 
 	ec.canvas->cd(1);
+	ec.h_excitation_10C->Draw();
+
+	ec.canvas->cd(2);
 	if (ec.h_14O_gate1 && ec.h_14O_gate2) {
 		ec.h_14O_gate1->SetLineColor(kRed);
 		ec.h_14O_gate1->SetMarkerColor(kRed);
@@ -679,14 +912,9 @@ static void DrawExcitationHistogram() {
 		ec.h_14O_gate1->SetMaximum(ymax);
 		ec.h_14O_gate1->Draw();
 		ec.h_14O_gate2->Draw("SAME");
-		TString title = TString::Format("^{14}O E_{x} (^{10}C gate overlay);E_{x}(^{14}O) (MeV);Counts");
-		ec.h_14O_gate1->SetTitle(title);
 	} else if (ec.h_14O_gate1) {
 		ec.h_14O_gate1->Draw();
 	}
-
-	ec.canvas->cd(2);
-	ec.h_excitation_10C->Draw();
 
 	ec.canvas->cd(3);
 	if (ec.h_14O_gate1) ec.h_14O_gate1->Draw();
@@ -696,6 +924,58 @@ static void DrawExcitationHistogram() {
 
 	ec.canvas->Modified();
 	ec.canvas->Update();
+}
+
+static void DrawExcitationFixedHistogram() {
+	auto &ecf = g_ctx.ec_fixed;
+	if (!ecf.canvas) return;
+	if (!ecf.h_excitation_10C) return;
+	ecf.canvas->Clear();
+	ecf.canvas->Divide(2, 2);
+
+	ecf.canvas->cd(1);
+	ecf.h_excitation_10C->Draw();
+
+	ecf.canvas->cd(2);
+	if (ecf.h_14O_gate1 && ecf.h_14O_gate2) {
+		ecf.h_14O_gate1->SetLineColor(kRed);
+		ecf.h_14O_gate1->SetMarkerColor(kRed);
+		ecf.h_14O_gate2->SetLineColor(kBlue);
+		ecf.h_14O_gate2->SetMarkerColor(kBlue);
+		double ymax = std::max(ecf.h_14O_gate1->GetMaximum(),
+			ecf.h_14O_gate2->GetMaximum()) * 1.15;
+		ecf.h_14O_gate1->SetMaximum(ymax);
+		ecf.h_14O_gate1->Draw();
+		ecf.h_14O_gate2->Draw("SAME");
+	} else if (ecf.h_14O_gate1) {
+		ecf.h_14O_gate1->Draw();
+	}
+
+	ecf.canvas->cd(3);
+	if (ecf.h_14O_gate1) ecf.h_14O_gate1->Draw();
+
+	ecf.canvas->cd(4);
+	if (ecf.h_14O_gate2) ecf.h_14O_gate2->Draw();
+
+	ecf.canvas->Modified();
+	ecf.canvas->Update();
+}
+
+static void DrawWindow6Histogram() {
+	auto &w6 = g_ctx.w6;
+	if (!w6.canvas) return;
+	if (!w6.h_missing_mass) return;
+	w6.canvas->Clear();
+	w6.canvas->Divide(2, 2);
+
+	w6.canvas->cd(1);
+	w6.h_missing_mass->Draw();
+
+	w6.canvas->cd(2);
+	w6.h_inversion->Draw();
+
+	w6.canvas->Modified();
+	w6.canvas->Update();
 }
 
 static void OnBeamChanged() {
@@ -715,6 +995,8 @@ static void OnBeamChanged() {
 
 	if (g_beam_filter == 1) {
 		DrawExcitationHistogram();
+		DrawExcitationFixedHistogram();
+		DrawWindow6Histogram();
 	}
 }
 
@@ -736,6 +1018,8 @@ void OnFileOpen() {
 
 void RebuildFromFile(const std::string &filepath) {
 	printf("Loading file: %s\n", filepath.c_str());
+
+	g_ctx.is_t1 = (filepath.find("_t1_") != std::string::npos);
 
 	TFile *input_file = new TFile(filepath.c_str(), "read");
 	if (!input_file || input_file->IsZombie()) {
@@ -799,6 +1083,8 @@ void RebuildFromFile(const std::string &filepath) {
 
 	if (g_beam_filter == 1) {
 		DrawExcitationHistogram();
+		DrawExcitationFixedHistogram();
+		DrawWindow6Histogram();
 	}
 
 	printf("  Done.\n");
@@ -919,7 +1205,7 @@ int main(int argc, char **argv) {
 	TGLabel *bins_label = new TGLabel(beam_frame, "  Bins: ");
 	beam_frame->AddFrame(bins_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
 
-	TGNumberEntry *entry_excitation_bins = new TGNumberEntry(beam_frame, 200, 5, -1,
+	TGNumberEntry *entry_excitation_bins = new TGNumberEntry(beam_frame, 100, 5, -1,
 		TGNumberFormat::kNESInteger,
 		TGNumberFormat::kNEANonNegative,
 		TGNumberFormat::kNELLimitMinMax, 10, 1000);
@@ -978,7 +1264,9 @@ int main(int argc, char **argv) {
 
 	g_ctx.fcs.canvas = new TCanvas("canvas_filtered", "10C+4He Filtered", 1200, 800);
 	g_ctx.ac.canvas = new TCanvas("canvas_analysis", "10C+4He Analysis", 1200, 800);
-	g_ctx.ec.canvas = new TCanvas("canvas_excitation", "10C Excitation Energy", 800, 600);
+	g_ctx.ec.canvas = new TCanvas("canvas_excitation", "10C Excitation Energy (per-event E_beam)", 800, 600);
+	g_ctx.ec_fixed.canvas = new TCanvas("canvas_excitation_fixed", "10C Excitation Energy (per-run E0)", 800, 600);
+	g_ctx.w6.canvas = new TCanvas("canvas_window6", "Missing Mass + Inversion", 800, 600);
 
 	TGStatusBar *status_bar = new TGStatusBar(main_frame, 1, 1);
 	main_frame->AddFrame(status_bar, new TGLayoutHints(kLHintsBottom | kLHintsExpandX));

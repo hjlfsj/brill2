@@ -224,6 +224,7 @@ int FillGcaliForLayers(
 		}
 
 		double y_scale = info->weight;
+		if (y_scale == 0.0) continue;
 
 		const TGraph *g = graphs[layer];
 		int hit_count = 0;
