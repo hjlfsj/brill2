@@ -1,8 +1,11 @@
 #include "include/config.h"
 #include "include/three_alpha/three_alpha_event.h"
+#include "include/energy_calculator/range_energy_calculator.h"
 #include "include/rebuild/nuclear_data.h"
 #include "include/utils.h"
 #include "external/cxxopts.hpp"
+
+#include <catima/catima.h>
 
 #include <TApplication.h>
 #include <TCanvas.h>
@@ -52,6 +55,12 @@ struct AnalysisPlots {
 	TLine *line_x2 = nullptr;
 };
 
+struct Be8Pairs {
+	TH1D *h_ex_12 = nullptr;
+	TH1D *h_ex_13 = nullptr;
+	TH1D *h_ex_23 = nullptr;
+};
+
 struct GUIContext {
 	TGMainFrame *main_frame = nullptr;
 	TGStatusBar *status_bar = nullptr;
@@ -67,6 +76,8 @@ struct GUIContext {
 	TGNumberEntry *entry_n2 = nullptr;
 	TGNumberEntry *entry_x1 = nullptr;
 	TGNumberEntry *entry_x2 = nullptr;
+	TGNumberEntry *entry_z = nullptr;
+	bool target_corr_enabled = true;
 
 	PIDCanvas pc_He1;
 	PIDCanvas pc_He2;
@@ -74,6 +85,9 @@ struct GUIContext {
 
 	TCanvas *analysis_canvas = nullptr;
 	AnalysisPlots ap;
+
+	TCanvas *be8pair_canvas = nullptr;
+	Be8Pairs bp;
 
 	std::string current_file;
 	std::string config_path;
@@ -88,6 +102,7 @@ static volatile int g_menu_action = 0;
 static volatile int g_beam_filter = 0;
 static volatile bool g_beam_changed = false;
 static volatile bool g_redraw = false;
+static volatile bool g_target_corr = true;
 
 static const char *BeamLabel() {
 	switch (g_beam_filter) {
@@ -180,11 +195,36 @@ static void RebuildAnalysisHistograms() {
 	ap.line_x2->SetLineWidth(2);
 }
 
+static void RebuildBe8PairHistograms() {
+	auto &bp = g_ctx.bp;
+	delete bp.h_ex_12; bp.h_ex_12 = nullptr;
+	delete bp.h_ex_13; bp.h_ex_13 = nullptr;
+	delete bp.h_ex_23; bp.h_ex_23 = nullptr;
+
+	int n1 = g_ctx.entry_n1 ? g_ctx.entry_n1->GetIntNumber() : 300;
+
+	bp.h_ex_12 = new TH1D("h_ex_Be8_12",
+		"^{8}Be Excitation (#alpha1#alpha2);E_{x} (MeV);Counts",
+		n1, -1, 29);
+	bp.h_ex_12->SetDirectory(nullptr);
+
+	bp.h_ex_13 = new TH1D("h_ex_Be8_13",
+		"^{8}Be Excitation (#alpha1#alpha3);E_{x} (MeV);Counts",
+		n1, -1, 29);
+	bp.h_ex_13->SetDirectory(nullptr);
+
+	bp.h_ex_23 = new TH1D("h_ex_Be8_23",
+		"^{8}Be Excitation (#alpha2#alpha3);E_{x} (MeV);Counts",
+		n1, -1, 29);
+	bp.h_ex_23->SetDirectory(nullptr);
+}
+
 static void FillHistograms() {
 	RebuildPIDHistograms(g_ctx.pc_He1, "He1", "He1");
 	RebuildPIDHistograms(g_ctx.pc_He2, "He2", "He2");
 	RebuildPIDHistograms(g_ctx.pc_He3, "He3", "He3");
 	RebuildAnalysisHistograms();
+	RebuildBe8PairHistograms();
 
 	if (g_ctx.all_events.empty()) return;
 
@@ -193,6 +233,10 @@ static void FillHistograms() {
 	double x1 = g_ctx.entry_x1 ? g_ctx.entry_x1->GetNumber() : -0.5;
 	double x2 = g_ctx.entry_x2 ? g_ctx.entry_x2->GetNumber() : 0.5;
 	if (x1 > x2) std::swap(x1, x2);
+
+	int run_min = g_ctx.entry_run_min ? g_ctx.entry_run_min->GetIntNumber() : 0;
+	int run_max = g_ctx.entry_run_max ? g_ctx.entry_run_max->GetIntNumber() : 9999;
+	if (run_min > run_max) std::swap(run_min, run_max);
 
 	for (int i = 0; i < total_events; ++i) {
 		if (i % 100 == 0 || i == total_events - 1) {
@@ -208,6 +252,7 @@ static void FillHistograms() {
 		const auto &ev = g_ctx.all_events[i];
 		if (!PassBeamFilter(ev)) continue;
 		if (!ev.ppac_valid) continue;
+		if (ev.run_number < run_min || ev.run_number > run_max) continue;
 
 		passed++;
 
@@ -242,6 +287,42 @@ static void FillHistograms() {
 		dz[2] = ev.t0d2_He3_z;
 
 		double et[3] = {ev.et_He1, ev.et_He2, ev.et_He3};
+
+		if (g_target_corr) {
+			static catima::Material s_cd2_mat;
+			static bool s_cd2_init = false;
+			static std::unique_ptr<brill::RangeEnergyCalculator> s_calc_4He;
+			if (!s_cd2_init) {
+				s_cd2_mat.add_element(12.0, 6.0, 1.0);
+				s_cd2_mat.add_element(2.0, 1.0, 2.0);
+				s_cd2_mat.density(0.79867);
+				std::string cache_dir = brill::JoinPath(g_ctx.config.workspace,
+					g_ctx.config.paths.energy_calculator);
+				std::string cache_path = TString::Format("%s/target_z2_a4_cd2.root",
+					cache_dir.c_str()).Data();
+				if (!std::filesystem::exists(cache_path)) {
+					printf("  WARNING: 4He cache %s not found. "
+						"It will be auto-generated (slow first run).\n",
+						cache_path.c_str());
+				}
+				s_calc_4He.reset(new brill::RangeEnergyCalculator(2, 4, s_cd2_mat,
+					cache_path.c_str()));
+				s_cd2_init = true;
+			}
+			const double half_thick_um = 122.0 / 2.0;
+			double z = g_ctx.entry_z ? g_ctx.entry_z->GetNumber() : 0.0;
+			double exit_thick = std::max(0.0, half_thick_um - z);
+
+			for (int p = 0; p < 3; ++p) {
+				double nrm = std::sqrt(dx[p]*dx[p] + dy[p]*dy[p] + dz[p]*dz[p]);
+				double costh = (nrm > 1e-6) ? dz[p] / nrm : 1.0;
+				double exit = exit_thick / std::max(costh, 0.001);
+				double r_before = s_calc_4He->Range(et[p]);
+				double r_after = r_before + exit;
+				et[p] = s_calc_4He->Energy(r_after);
+			}
+		}
+
 		TLorentzVector P_alpha[3];
 
 		for (int p = 0; p < 3; ++p) {
@@ -286,6 +367,10 @@ static void FillHistograms() {
 		if (Ex_8Be >= x1 && Ex_8Be <= x2) {
 			g_ctx.ap.h_ex_12C_gated->Fill(Ex_12C);
 		}
+
+		g_ctx.bp.h_ex_12->Fill((P_alpha[0] + P_alpha[1]).M() - m_8Be_gs);
+		g_ctx.bp.h_ex_13->Fill((P_alpha[0] + P_alpha[2]).M() - m_8Be_gs);
+		g_ctx.bp.h_ex_23->Fill((P_alpha[1] + P_alpha[2]).M() - m_8Be_gs);
 	}
 
 	printf("\r  Done: %d events, passed=%d        \n", total_events, passed);
@@ -348,6 +433,26 @@ static void DrawAnalysisCanvas() {
 	c->Update();
 }
 
+static void DrawBe8PairCanvas() {
+	TCanvas *c = g_ctx.be8pair_canvas;
+	if (!c) return;
+
+	c->Clear();
+	c->Divide(2, 2);
+
+	c->cd(1);
+	if (g_ctx.bp.h_ex_12) g_ctx.bp.h_ex_12->Draw();
+
+	c->cd(2);
+	if (g_ctx.bp.h_ex_13) g_ctx.bp.h_ex_13->Draw();
+
+	c->cd(3);
+	if (g_ctx.bp.h_ex_23) g_ctx.bp.h_ex_23->Draw();
+
+	c->Modified();
+	c->Update();
+}
+
 static void OnDraw() {
 	g_ctx.status_bar->SetText("Drawing...");
 	gSystem->ProcessEvents();
@@ -358,6 +463,7 @@ static void OnDraw() {
 	DrawPIDCanvas(g_ctx.pc_He2);
 	DrawPIDCanvas(g_ctx.pc_He3);
 	DrawAnalysisCanvas();
+	DrawBe8PairCanvas();
 
 	g_ctx.status_bar->SetText(
 		TString::Format("Draw done. File: %s", g_ctx.current_file.c_str()));
@@ -416,6 +522,11 @@ static void OnFileOpen() {
 static void ProcessMenu(int action) {
 	switch (action) {
 		case 3: { // Draw
+			if (!g_ctx.current_file.empty()) {
+				g_redraw = true;
+				break;
+			}
+
 			int run_min = g_ctx.entry_run_min->GetIntNumber();
 			int run_max = g_ctx.entry_run_max->GetIntNumber();
 			if (run_min > run_max) std::swap(run_min, run_max);
@@ -510,6 +621,9 @@ int main(int argc, char **argv) {
 	gInterpreter->Declare(
 		TString::Format("volatile bool &g_redraw = *((volatile bool*)%lu);",
 			(unsigned long)&g_redraw).Data());
+	gInterpreter->Declare(
+		TString::Format("volatile bool &g_target_corr = *((volatile bool*)%lu);",
+			(unsigned long)&g_target_corr).Data());
 	gInterpreter->Declare("void HandleParamChange() { g_redraw = true; }");
 
 	TGPopupMenu *menu_file = new TGPopupMenu(gClient->GetRoot());
@@ -598,6 +712,20 @@ int main(int argc, char **argv) {
 	g_ctx.entry_x2->Connect("ValueSet(Long_t)", nullptr, nullptr, "HandleParamChange()");
 	ctrl_frame->AddFrame(g_ctx.entry_x2, new TGLayoutHints(kLHintsLeft | kLHintsCenterY, 0, 5));
 
+	ctrl_frame->AddFrame(new TGLabel(ctrl_frame, "z(um):"),
+		new TGLayoutHints(kLHintsLeft | kLHintsCenterY, 10, 2));
+
+	g_ctx.entry_z = new TGNumberEntry(ctrl_frame, 0, 6, -1,
+		TGNumberFormat::kNESReal, TGNumberFormat::kNEAAnyNumber,
+		TGNumberFormat::kNELLimitMinMax, -500, 500);
+	g_ctx.entry_z->Connect("ValueSet(Long_t)", nullptr, nullptr, "HandleParamChange()");
+	ctrl_frame->AddFrame(g_ctx.entry_z, new TGLayoutHints(kLHintsLeft | kLHintsCenterY, 0, 5));
+
+	TGCheckButton *chk_target = new TGCheckButton(ctrl_frame, "Target corr");
+	chk_target->SetState(g_target_corr ? kButtonDown : kButtonUp);
+	chk_target->SetCommand("g_target_corr = !g_target_corr; g_redraw = true;");
+	ctrl_frame->AddFrame(chk_target, new TGLayoutHints(kLHintsLeft | kLHintsCenterY, 10, 5));
+
 	g_ctx.main_frame->AddFrame(ctrl_frame, new TGLayoutHints(kLHintsTop | kLHintsExpandX, 2, 2, 2, 0));
 
 	TRootEmbeddedCanvas *ec_main = new TRootEmbeddedCanvas("ec_main", g_ctx.main_frame, main_w, main_h);
@@ -616,6 +744,12 @@ int main(int argc, char **argv) {
 	TCanvas *c3 = new TCanvas("c_He3", "He3 PID", main_w, main_h);
 	g_ctx.pc_He3.canvas = c3;
 	c3->SetWindowPosition(50 + main_w + 20 + main_w + 20, 50);
+
+	TCanvas *c4 = new TCanvas("c_Be8Pairs", "8Be Pairs", main_w, main_h);
+	g_ctx.be8pair_canvas = c4;
+	c4->SetWindowPosition(50 + main_w + 20 + main_w + 20, 50 + main_h + 60);
+	c4->Divide(2, 2);
+	c4->Update();
 
 	g_ctx.status_bar = new TGStatusBar(g_ctx.main_frame, 100, 20);
 	g_ctx.main_frame->AddFrame(g_ctx.status_bar, new TGLayoutHints(kLHintsBottom | kLHintsExpandX));

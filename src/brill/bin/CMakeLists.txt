@@ -260,6 +260,7 @@ target_link_libraries(
 	config
 	three_alpha_event
 	rebuild_physics
+	energy_calculator
 	ROOT::RIO
 	ROOT::Tree
 	ROOT::Hist
