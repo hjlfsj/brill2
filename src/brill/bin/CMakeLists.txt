@@ -289,6 +289,9 @@ target_link_libraries(
 	PRIVATE
 	config
 	C10He4_event
+	C10He4_tafd
+	C10He4_tafcsi
+	energy_calculator
 	rebuild_physics
 	physics
 	lise_physics

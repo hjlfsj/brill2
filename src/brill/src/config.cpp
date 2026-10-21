@@ -303,6 +303,24 @@ void LoadDetector(const toml::table &table, const std::string &name, SquareDetec
 	LoadDetectorDouble(table, "y_offset_mm", detector.y_offset_mm);
 }
 
+void LoadTAFD(const toml::table &table, TAFDConfig &tafd) {
+	LoadDetectorDouble(table, "z_mm", tafd.z_mm);
+	LoadDetectorInt(table, "num_rings", tafd.num_rings);
+	LoadDetectorInt(table, "num_pies", tafd.num_pies);
+	LoadDetectorDouble(table, "inner_radius_mm", tafd.inner_radius_mm);
+	LoadDetectorDouble(table, "outer_radius_mm", tafd.outer_radius_mm);
+	LoadDetectorDouble(table, "center_distance_mm", tafd.center_distance_mm);
+	LoadDetectorDouble(table, "fan_angle_deg", tafd.fan_angle_deg);
+	if (const auto *node = table["angles_deg"].as_array()) {
+		tafd.angles_deg.clear();
+		for (size_t i = 0; i < node->size(); ++i) {
+			if (auto value = (*node)[i].value<double>()) {
+				tafd.angles_deg.push_back(*value);
+			}
+		}
+	}
+}
+
 } // namespace
 
 int LoadConfig(const std::string &path, AppConfig &config) {
@@ -349,6 +367,10 @@ int LoadConfig(const std::string &path, AppConfig &config) {
 		}
 		if (const auto *identify = table["identify"].as_table()) {
 			LoadIdentify(*identify, config.identify);
+		}
+
+		if (const auto *tafd = table["tafd"].as_table()) {
+			LoadTAFD(*tafd, config.tafd);
 		}
 
 		if (const auto *detectors = table["detectors"].as_table()) {

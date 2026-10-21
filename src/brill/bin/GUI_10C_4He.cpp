@@ -1,8 +1,13 @@
 #include "include/config.h"
 #include "include/10C+4He/10C_4He_event.h"
 #include "include/energy_calculator/range_energy_calculator.h"
+#include "include/energy_calculator/lost_energy_calculator.h"
 #include "include/physics/kinematics.h"
 #include "include/rebuild/nuclear_data.h"
+#include "include/10C+4He/tafd.h"
+#include "include/10C+4He/tafcsi.h"
+#include "include/Lise++/e_theta.h"
+#include "include/Lise++/target_energy_loss.h"
 #include "include/utils.h"
 #include "external/cxxopts.hpp"
 
@@ -18,6 +23,7 @@
 #include <TGLayout.h>
 #include <TGMenu.h>
 #include <TGButton.h>
+#include <TGButtonGroup.h>
 #include <TGLabel.h>
 #include <TGNumberEntry.h>
 #include <TGStatusBar.h>
@@ -38,6 +44,7 @@
 #include <fstream>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -92,6 +99,28 @@ struct Window6Canvas {
 	TH1D *h_inversion = nullptr;
 };
 
+struct TafdCanvas {
+	TCanvas *canvas = nullptr;
+	TH2D *h_e_theta = nullptr;
+	TH1D *h_excitation_tafd = nullptr;
+	TH2D *h_csi_tafd = nullptr;
+	TGraph *g_d_ex12 = nullptr;
+	TGraph *g_d_ex18 = nullptr;
+	TGraph *g_d_ex22 = nullptr;
+};
+
+struct TafcsiPerChannelCanvas {
+	TCanvas *canvas = nullptr;
+	TH2D *h_ch[12] = {};
+};
+
+struct TafdPositionCanvas {
+	TCanvas *canvas = nullptr;
+	TH2D *h_xy = nullptr;
+	TH2D *h_e_theta_corrected = nullptr;
+	TH1D *h_excitation_corrected = nullptr;
+};
+
 struct GUIContext {
 	TGMainFrame *main_frame = nullptr;
 	TGStatusBar *status_bar = nullptr;
@@ -110,6 +139,12 @@ struct GUIContext {
 	TGNumberEntry *entry_x3 = nullptr;
 	TGNumberEntry *entry_z = nullptr;
 
+	TGRadioButton *radio_he4_all = nullptr;
+	TGRadioButton *radio_he4_stop = nullptr;
+	TGRadioButton *radio_he4_tran = nullptr;
+
+	double total_Si_thickness_um = 0.0;
+
 	BeamCanvases bcs;
 	FilteredCanvases fcs;
 	AnalysisCanvas ac;
@@ -117,6 +152,9 @@ struct GUIContext {
 	ExcitationCanvasFixed ec_fixed;
 
 	Window6Canvas w6;
+	TafdCanvas tafd;
+	TafcsiPerChannelCanvas tafcsi_channels;
+	TafdPositionCanvas tafd_position;
 
 	std::string current_file;
 	std::string config_path;
@@ -124,6 +162,8 @@ struct GUIContext {
 	std::string beam_dir;
 	std::string trigger;
 	bool is_t1 = false;
+	brill::TafdCalibration tafd_calib;
+	bool tafd_calib_loaded = false;
 	brill::AppConfig config;
 	std::vector<brill::C10He4Event> all_events;
 
@@ -140,6 +180,22 @@ struct BeamFileCache {
 };
 
 static std::map<std::pair<int, bool>, BeamFileCache> g_beam_cache;
+
+struct TafdFileCache {
+	TFile *file = nullptr;
+	TTree *tree = nullptr;
+	brill::TafdEvent event;
+};
+
+static std::map<int, TafdFileCache> g_tafd_cache;
+
+struct TafcsiFileCache {
+	TFile *file = nullptr;
+	TTree *tree = nullptr;
+	brill::CsiEvent<brill::kMaxTafcsi> event;
+};
+
+static std::map<int, TafcsiFileCache> g_tafcsi_cache;
 
 static double ReadBeamEnergy(int run, Long64_t entry, const std::string &beam_dir, bool use_t1) {
 	auto &cache = g_beam_cache[{run, use_t1}];
@@ -219,6 +275,7 @@ static volatile int g_beam_filter = 0;
 static volatile bool g_beam_changed = false;
 static volatile bool g_redraw = false;
 static volatile bool g_is_track = false;
+static volatile int g_he4_mode = 0;
 
 static constexpr double kEbreak = 10.12;
 
@@ -457,6 +514,252 @@ static void RebuildWindow6Histogram() {
 	w6.h_inversion->SetDirectory(0);
 }
 
+static void LoadTafdCurves() {
+	auto &tc = g_ctx.tafd;
+	if (tc.g_d_ex12) return;
+
+	std::string assets = g_ctx.config.assets;
+	try {
+		tc.g_d_ex12 = brill::LoadEThetaCurve(
+			brill::JoinPath(assets, "14O_d_d_12_e_theta.txt"), "2H");
+		tc.g_d_ex12->SetLineColor(kBlue);
+		tc.g_d_ex12->SetLineWidth(2);
+	} catch (const std::exception &e) {
+		fprintf(stderr, "Warning: %s\n", e.what());
+	}
+	try {
+		tc.g_d_ex18 = brill::LoadEThetaCurve(
+			brill::JoinPath(assets, "14O_d_d_18_e_theta.txt"), "2H");
+		tc.g_d_ex18->SetLineColor(kGreen + 2);
+		tc.g_d_ex18->SetLineWidth(2);
+	} catch (const std::exception &e) {
+		fprintf(stderr, "Warning: %s\n", e.what());
+	}
+	try {
+		tc.g_d_ex22 = brill::LoadEThetaCurve(
+			brill::JoinPath(assets, "14O_d_d_22_e_theta.txt"), "2H");
+		tc.g_d_ex22->SetLineColor(kRed);
+		tc.g_d_ex22->SetLineWidth(2);
+	} catch (const std::exception &e) {
+		fprintf(stderr, "Warning: %s\n", e.what());
+	}
+}
+
+static void RebuildTafdHistogram() {
+	auto &tc = g_ctx.tafd;
+	if (tc.h_e_theta) delete tc.h_e_theta;
+	if (tc.h_excitation_tafd) delete tc.h_excitation_tafd;
+	if (tc.h_csi_tafd) delete tc.h_csi_tafd;
+
+	tc.h_e_theta = new TH2D(
+		"h_tafd_e_theta",
+		"TAFD E-#theta (t1);#theta_{TAFD} (deg);E_{TAFD} (MeV)",
+		50, 0, 90, 200, 0, 50);
+	tc.h_e_theta->SetDirectory(0);
+
+	tc.h_excitation_tafd = new TH1D(
+		"h_excitation_tafd",
+		"^{10}C E_{x} (TAFD d, no T loss);E_{x}(^{10}C) (MeV);Counts",
+		100, -20, 80);
+	tc.h_excitation_tafd->SetDirectory(0);
+
+	tc.h_csi_tafd = new TH2D(
+		"h_csi_tafd",
+		"CsI vs TAFD;CsI_{e} (ch);E_{TAFD} (MeV)",
+		100, 0, 5000, 100, 0, 15);
+	tc.h_csi_tafd->SetDirectory(0);
+}
+
+static void DrawTafdHistogram() {
+	auto &tc = g_ctx.tafd;
+	if (!tc.canvas) return;
+	if (!tc.h_e_theta) return;
+
+	LoadTafdCurves();
+
+	tc.canvas->Clear();
+	tc.canvas->Divide(2, 2);
+	tc.canvas->cd(1);
+	tc.h_e_theta->Draw("colz");
+
+	if (tc.g_d_ex12) tc.g_d_ex12->Draw("L same");
+	if (tc.g_d_ex18) tc.g_d_ex18->Draw("L same");
+	if (tc.g_d_ex22) tc.g_d_ex22->Draw("L same");
+
+	tc.canvas->cd(2);
+	if (tc.h_excitation_tafd) tc.h_excitation_tafd->Draw();
+
+	tc.canvas->cd(3);
+	if (tc.h_csi_tafd) tc.h_csi_tafd->Draw("colz");
+
+	tc.canvas->Modified();
+	tc.canvas->Update();
+}
+
+static void RebuildTafcsiPerChannelHistogram() {
+	auto &tc = g_ctx.tafcsi_channels;
+	for (int i = 0; i < 12; ++i) {
+		if (tc.h_ch[i]) delete tc.h_ch[i];
+		tc.h_ch[i] = new TH2D(
+			TString::Format("h_csi_tafd_ch%02d", i),
+			TString::Format("CsI%02d vs TAFD;CsI_{e} (ch);E_{TAFD} (MeV)", i),
+			100, 0, 5000, 100, 0, 15);
+		tc.h_ch[i]->SetDirectory(0);
+	}
+}
+
+static void DrawTafcsiPerChannelHistogram() {
+	auto &tc = g_ctx.tafcsi_channels;
+	if (!tc.canvas) return;
+	if (!tc.h_ch[0]) return;
+
+	tc.canvas->Clear();
+	tc.canvas->Divide(4, 3);
+
+	for (int i = 0; i < 12; ++i) {
+		tc.canvas->cd(i + 1);
+		if (tc.h_ch[i]) tc.h_ch[i]->Draw("colz");
+	}
+
+	tc.canvas->Modified();
+	tc.canvas->Update();
+}
+
+static void RebuildTafdPositionHistogram() {
+	auto &tc = g_ctx.tafd_position;
+	if (tc.h_xy) delete tc.h_xy;
+	if (tc.h_e_theta_corrected) delete tc.h_e_theta_corrected;
+	if (tc.h_excitation_corrected) delete tc.h_excitation_corrected;
+	tc.h_xy = new TH2D(
+		"h_tafd_xy",
+		"TAFD Hit Position (with CsI);x (mm);y (mm)",
+		100, -200, 200, 100, -200, 200);
+	tc.h_xy->SetDirectory(0);
+	tc.h_e_theta_corrected = new TH2D(
+		"h_tafd_e_theta_corr",
+		"Corrected d E-#theta;#theta_{TAFD} (deg);E_{d,corr} (MeV)",
+		50, 0, 90, 100, 0, 100);
+	tc.h_e_theta_corrected->SetDirectory(0);
+	tc.h_excitation_corrected = new TH1D(
+		"h_excitation_tafd_corr",
+		"^{10}C E_{x} (corrected d);E_{x}(^{10}C) (MeV);Counts",
+		100, -20, 80);
+	tc.h_excitation_corrected->SetDirectory(0);
+}
+
+static void DrawTafdPositionHistogram() {
+	auto &tc = g_ctx.tafd_position;
+	if (!tc.canvas) return;
+	if (!tc.h_xy) return;
+
+	tc.canvas->Clear();
+	tc.canvas->Divide(2, 2);
+	tc.canvas->cd(1);
+	tc.h_xy->Draw("colz");
+
+	tc.canvas->cd(2);
+	if (tc.h_e_theta_corrected) {
+		tc.h_e_theta_corrected->Draw("colz");
+		LoadTafdCurves();
+		if (g_ctx.tafd.g_d_ex12) g_ctx.tafd.g_d_ex12->Draw("L same");
+		if (g_ctx.tafd.g_d_ex18) g_ctx.tafd.g_d_ex18->Draw("L same");
+		if (g_ctx.tafd.g_d_ex22) g_ctx.tafd.g_d_ex22->Draw("L same");
+	}
+
+	tc.canvas->cd(4);
+	if (tc.h_excitation_corrected) tc.h_excitation_corrected->Draw();
+
+	tc.canvas->Modified();
+	tc.canvas->Update();
+}
+
+static brill::TafdTarget ReadTafdTarget(int run, Long64_t entry) {
+	auto &cache = g_tafd_cache[run];
+
+	if (!cache.tree) {
+		TString tafd_path = TString::Format("%s/tafd_t1_%04d.root",
+			brill::JoinPath(g_ctx.config.workspace, "ingot").c_str(), run);
+		if (!std::filesystem::exists(tafd_path.Data())) {
+			fprintf(stderr, "Warning: TAFD file not found: %s\n", tafd_path.Data());
+			brill::TafdTarget t; return t;
+		}
+		cache.file = new TFile(tafd_path, "read");
+		cache.tree = (TTree*)cache.file->Get("tree");
+		if (!cache.tree) {
+			fprintf(stderr, "Warning: no tree in %s\n", tafd_path.Data());
+			brill::TafdTarget t; return t;
+		}
+		brill::SetupInput(cache.tree, cache.event, "");
+	}
+
+	if (entry < 0 || entry >= cache.tree->GetEntries()) {
+		brill::TafdTarget t; return t;
+	}
+
+	cache.tree->GetEntry(entry);
+
+	brill::TafdTarget target;
+	auto &tafd = cache.event;
+	auto &calib = g_ctx.tafd_calib;
+	auto &tcfg = g_ctx.config.tafd;
+
+	for (int i = 0; i < 6; ++i) {
+		if (!tafd.valid[i]) continue;
+		int fs = tafd.front_strip[i];
+		int bs = tafd.back_strip[i];
+		if (fs < 0 || fs >= 16) continue;
+		if (bs < 0 || bs >= 8) continue;
+
+		double e;
+		if (i == 5) {
+			e = calib.back_k[i][bs] * tafd.back_energy[i] + calib.back_b[i][bs];
+		} else {
+			e = calib.front_k[i][fs] * tafd.front_energy[i] + calib.front_b[i][fs];
+		}
+		if (e > target.energy) {
+			target.found = true;
+			target.energy = e;
+			target.tafd_index = i;
+			target.ring = fs;
+			target.pie = bs;
+		}
+	}
+
+	if (target.found) {
+		brill::TAFDGetPosition(tcfg, target.tafd_index, target.ring, target.pie,
+			target.x, target.y, target.z);
+	}
+
+	return target;
+}
+
+static brill::TafcsiTarget ReadTafcsiTarget(int run, Long64_t entry, int tafd_index) {
+	auto &cache = g_tafcsi_cache[run];
+
+	if (!cache.tree) {
+		TString tafcsi_path = TString::Format("%s/tafcsi_t1_%04d.root",
+			brill::JoinPath(g_ctx.config.workspace, "ingot").c_str(), run);
+		if (!std::filesystem::exists(tafcsi_path.Data())) {
+			fprintf(stderr, "Warning: TAFCSI file not found: %s\n", tafcsi_path.Data());
+			brill::TafcsiTarget t; return t;
+		}
+		cache.file = new TFile(tafcsi_path, "read");
+		cache.tree = (TTree*)cache.file->Get("tree");
+		if (!cache.tree) {
+			fprintf(stderr, "Warning: no tree in %s\n", tafcsi_path.Data());
+			brill::TafcsiTarget t; return t;
+		}
+		brill::SetupInput(cache.tree, cache.event, "");
+	}
+
+	if (entry < 0 || entry >= cache.tree->GetEntries()) {
+		brill::TafcsiTarget t; return t;
+	}
+
+	cache.tree->GetEntry(entry);
+	return brill::FindTafcsiTarget(cache.event, tafd_index);
+}
+
 static void FillAllHistograms() {
 	RebuildBeamHistograms();
 
@@ -534,9 +837,15 @@ static bool PassTrackCut(const brill::C10He4Event &ev) {
 	return true;
 }
 
-static void FillFilteredAndAnalysis(TCutG *cut) {
+static void FillFilteredAndAnalysis(TCutG *stop_cut) {
 	RebuildFilteredHistograms();
 	RebuildAnalysisHistograms();
+
+	if (g_ctx.is_t1 && g_ctx.tafd_calib_loaded) {
+		RebuildTafdHistogram();
+		RebuildTafcsiPerChannelHistogram();
+		RebuildTafdPositionHistogram();
+	}
 
 	if (g_beam_filter == 1) {
 		RebuildExcitationHistogram();
@@ -545,8 +854,27 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 
 	if (g_ctx.all_events.empty()) return;
 
+	TString tran_cut_path = "src/brill/Cut/cal_d4_s1_tran_4He_cut.C";
+	gROOT->ProcessLine(TString::Format(".x %s", tran_cut_path.Data()));
+	TCutG *tran_cut = (TCutG*)gROOT->FindObject("cal_d4_s1_tran_4He_cut");
+
+	static std::unique_ptr<brill::RangeEnergyCalculator> s_calc_4He_Si;
+	static bool s_si_init = false;
+	if (!s_si_init && g_ctx.total_Si_thickness_um > 0) {
+		catima::Material si_mat = brill::SiliconMaterial();
+		std::string cache_dir = brill::JoinPath(g_ctx.config.workspace,
+			g_ctx.config.paths.energy_calculator);
+		std::string si_cache = TString::Format("%s/si_z2_a4.root",
+			cache_dir.c_str()).Data();
+		s_calc_4He_Si.reset(new brill::RangeEnergyCalculator(2, 4, si_mat,
+			si_cache.c_str()));
+		s_si_init = true;
+	}
+
 	double m_10C = brill::GetMass(6, 10);
 	double m_4He = brill::GetMass(2, 4);
+	double m_14O = brill::GetMass(8, 14);
+	double m_d = brill::GetMass(1, 2);
 
 	catima::Material cd2_mat;
 	cd2_mat.add_element(12.0, 6.0, 1.0);
@@ -579,8 +907,45 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 
 		const auto &ev = g_ctx.all_events[i];
 
-		if (!cut->IsInside(ev.e5_4He, ev.e4_4He)) continue;
+		bool in_stop = stop_cut->IsInside(ev.e5_4He, ev.e4_4He);
+		bool in_tran = (tran_cut != nullptr) && tran_cut->IsInside(ev.e5_4He, ev.e4_4He);
+
+		if (in_stop && in_tran) in_tran = false;
+
+		bool pass_he4 = (g_he4_mode == 0) ? (in_stop || in_tran)
+			: (g_he4_mode == 1) ? in_stop
+			: (g_he4_mode == 2) ? in_tran : false;
+		if (!pass_he4) continue;
+
 		if (!PassBeamFilter(ev)) continue;
+
+		double T_4He_raw = ev.e1_4He + ev.e2_4He + ev.e3_4He + ev.e4_4He + ev.e5_4He;
+		if (in_tran && s_calc_4He_Si && g_ctx.total_Si_thickness_um > 0) {
+			double e_dep = T_4He_raw;
+			double lo = e_dep;
+			double hi = e_dep * 5.0;
+
+			while (s_calc_4He_Si->Range(hi) - g_ctx.total_Si_thickness_um > 0
+				&& hi - s_calc_4He_Si->Energy(
+					s_calc_4He_Si->Range(hi) - g_ctx.total_Si_thickness_um) >= e_dep) {
+				hi *= 2.0;
+			}
+
+			for (int iter = 0; iter < 80; ++iter) {
+				double mid = (lo + hi) * 0.5;
+				double r_mid = s_calc_4He_Si->Range(mid);
+				double e_lost = mid - (r_mid > g_ctx.total_Si_thickness_um
+					? s_calc_4He_Si->Energy(r_mid - g_ctx.total_Si_thickness_um) : 0.0);
+
+				if (e_lost > e_dep) {
+					lo = mid;
+				} else {
+					hi = mid;
+				}
+			}
+
+			T_4He_raw = (lo + hi) * 0.5;
+		}
 
 		passed++;
 		auto &fc = g_ctx.fcs;
@@ -598,7 +963,7 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 		analyzed++;
 
 		double T_10C = ev.e1_10C + ev.e2_10C + ev.e3_10C;
-		double T_4He = ev.e1_4He + ev.e2_4He + ev.e3_4He + ev.e4_4He + ev.e5_4He;
+		double T_4He = T_4He_raw;
 
 		double E_10C = T_10C + m_10C;
 		double E_4He = T_4He + m_4He;
@@ -619,6 +984,190 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 		ac.h_10C_e_theta->Fill(ev.theta_10C, T_10C);
 		ac.h_4He_e_theta->Fill(ev.theta_4He, T_4He);
 		ac.h_theta_theta->Fill(ev.theta_10C, ev.theta_4He);
+
+		if (g_ctx.is_t1 && g_ctx.tafd_calib_loaded) {
+			auto target = ReadTafdTarget(ev.run_number, ev.entry);
+			if (target.found) {
+				double dx = target.x - ev.target_x;
+				double dy = target.y - ev.target_y;
+				double dz = target.z;
+				double r_xy = std::sqrt(dx * dx + dy * dy);
+				double theta = std::atan2(r_xy, dz) * 180.0 / M_PI;
+				g_ctx.tafd.h_e_theta->Fill(theta, target.energy);
+
+				double T_d_tafd = target.energy;
+				double E_d = T_d_tafd + m_d;
+				double p_d_mag = std::sqrt(E_d * E_d - m_d * m_d);
+				double norm_d = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+				double dx_10C = ev.t0d2_10C_x - ev.target_x;
+				double dy_10C = ev.t0d2_10C_y - ev.target_y;
+				double dz_10C = ev.t0d2_10C_z;
+				double norm_10C = std::sqrt(dx_10C*dx_10C + dy_10C*dy_10C + dz_10C*dz_10C);
+
+				double dx_4He = ev.t0d2_4He_x - ev.target_x;
+				double dy_4He = ev.t0d2_4He_y - ev.target_y;
+				double dz_4He = ev.t0d2_4He_z;
+				double norm_4He = std::sqrt(dx_4He*dx_4He + dy_4He*dy_4He + dz_4He*dz_4He);
+
+				double px_total = p_10C * dx_10C / norm_10C
+					+ p_4He * dx_4He / norm_4He
+					+ p_d_mag * dx / norm_d;
+				double py_total = p_10C * dy_10C / norm_10C
+					+ p_4He * dy_4He / norm_4He
+					+ p_d_mag * dy / norm_d;
+				double pz_total = p_10C * dz_10C / norm_10C
+					+ p_4He * dz_4He / norm_4He
+					+ p_d_mag * dz / norm_d;
+				double p_total_sq = px_total*px_total + py_total*py_total + pz_total*pz_total;
+				double E_14O_reco = std::sqrt(p_total_sq + m_14O * m_14O);
+				double T_14O_reco = E_14O_reco - m_14O;
+
+				double Q0 = m_14O - m_10C - m_4He;
+				double E_x_tafd = T_14O_reco + Q0 - (T_10C + T_4He + T_d_tafd);
+				g_ctx.tafd.h_excitation_tafd->Fill(E_x_tafd);
+
+				auto csi = ReadTafcsiTarget(ev.run_number, ev.entry, target.tafd_index);
+				if (csi.found) {
+					static int s_diag_count = 0;
+					bool diag = (s_diag_count < 5);
+
+					g_ctx.tafd.h_csi_tafd->Fill(csi.energy, target.energy);
+					auto &h = g_ctx.tafcsi_channels.h_ch[csi.channel];
+					if (h) h->Fill(csi.energy, target.energy);
+					if (g_ctx.tafd_position.h_xy)
+						g_ctx.tafd_position.h_xy->Fill(target.x, target.y);
+
+					if (diag) printf("\n  === d correction diag #%d ===\n", s_diag_count + 1);
+
+					static std::unique_ptr<brill::RangeEnergyCalculator> s_calc_d_Si;
+					if (!s_calc_d_Si) {
+						TString cache_path = TString::Format(
+							"%s/si_z1_a2.root",
+							brill::JoinPath(g_ctx.config.workspace,
+								g_ctx.config.paths.energy_calculator).c_str());
+						s_calc_d_Si = std::make_unique<brill::RangeEnergyCalculator>(
+							1, 2, brill::SiliconMaterial(), cache_path.Data());
+					}
+
+					static std::unique_ptr<brill::TargetEnergyLoss> s_target_d;
+					if (!s_target_d) {
+						s_target_d = std::make_unique<brill::TargetEnergyLoss>(
+							g_ctx.config, 1, 2);
+					}
+
+					double physical_thickness_um = 400.0;
+					if (target.tafd_index >= 2 && target.tafd_index <= 4) {
+						physical_thickness_um = 150.0;
+					}
+					double cos_theta = std::cos(theta * M_PI / 180.0);
+					double eff_thick_um = physical_thickness_um / cos_theta;
+
+					double T_d_deposited = target.energy;
+					double T_d_before_Si = T_d_deposited;
+
+					if (diag) {
+						printf("  physical_thick=%.0f um  eff_thick=%.1f um\n",
+							physical_thickness_um, eff_thick_um);
+						printf("  theta=%.1f deg  T_dep=%.3f MeV\n",
+							theta, T_d_deposited);
+					}
+
+					auto loss_from_residual = [&](double E_res) {
+						double r = s_calc_d_Si->Range(E_res);
+						return s_calc_d_Si->Energy(r + eff_thick_um) - E_res;
+					};
+					double max_loss = loss_from_residual(0.0);
+
+					if (diag) printf("  max_loss(stopped)=%.3f MeV\n", max_loss);
+
+					if (T_d_deposited < max_loss) {
+						double lo = 0.0, hi = 1.0;
+						while (loss_from_residual(hi) > T_d_deposited && hi < 1e6)
+							hi *= 2.0;
+						for (int iter = 0; iter < 100; ++iter) {
+							double mid = 0.5 * (lo + hi);
+							if (loss_from_residual(mid) > T_d_deposited)
+								lo = mid;
+							else
+								hi = mid;
+						}
+						double E_res = 0.5 * (lo + hi);
+						T_d_before_Si = s_calc_d_Si->Energy(
+							s_calc_d_Si->Range(E_res) + eff_thick_um);
+
+						if (diag) {
+							double r_res = s_calc_d_Si->Range(E_res);
+							printf("  bisect: E_res=%.3f  Range(E_res)=%.1f um\n",
+								E_res, r_res);
+							double r_tot = r_res + eff_thick_um;
+							printf("  total_range=%.1f um  Energy(total)=%.3f MeV\n",
+								r_tot, T_d_before_Si);
+							double check_loss = T_d_before_Si - E_res;
+							printf("  check: E_before - E_res = %.3f (vs dep=%.3f)\n",
+								check_loss, T_d_deposited);
+						}
+					} else {
+						T_d_before_Si = s_calc_d_Si->Energy(eff_thick_um);
+						if (diag) printf("  stopped: T_before_Si=Energy(eff)=%.3f MeV\n",
+							T_d_before_Si);
+					}
+
+					double T_d_total = T_d_before_Si;
+					try {
+						if (theta <= 70.0) {
+							double effective_half_thickness_um = 0.0;
+							double e_after_target = s_target_d->IncidentEnergy(
+								T_d_before_Si, theta,
+								brill::TargetType::kCD2, effective_half_thickness_um);
+							if (diag) {
+								printf("  target: eff_half=%.1f um  E(target in)=%.3f MeV\n",
+									effective_half_thickness_um, e_after_target);
+							}
+							T_d_total = e_after_target;
+						} else if (diag) {
+							printf("  target: skipped (theta=%.1f > 70)\n", theta);
+						}
+					} catch (...) {
+						if (diag) printf("  target: exception!\n");
+					}
+
+					if (diag) {
+						printf("  => T_d_total = %.3f MeV\n", T_d_total);
+						s_diag_count++;
+					}
+
+					if (g_ctx.tafd_position.h_e_theta_corrected)
+						g_ctx.tafd_position.h_e_theta_corrected->Fill(
+							theta, T_d_total);
+
+					double E_d_corr = T_d_total + m_d;
+					double p_d_mag_corr = std::sqrt(
+						E_d_corr * E_d_corr - m_d * m_d);
+					double px_total_corr = p_10C * dx_10C / norm_10C
+						+ p_4He * dx_4He / norm_4He
+						+ p_d_mag_corr * dx / norm_d;
+					double py_total_corr = p_10C * dy_10C / norm_10C
+						+ p_4He * dy_4He / norm_4He
+						+ p_d_mag_corr * dy / norm_d;
+					double pz_total_corr = p_10C * dz_10C / norm_10C
+						+ p_4He * dz_4He / norm_4He
+						+ p_d_mag_corr * dz / norm_d;
+					double p_total_sq_corr = px_total_corr*px_total_corr
+						+ py_total_corr*py_total_corr
+						+ pz_total_corr*pz_total_corr;
+					double E_14O_reco_corr = std::sqrt(
+						p_total_sq_corr + m_14O * m_14O);
+					double T_14O_reco_corr = E_14O_reco_corr - m_14O;
+					double E_x_tafd_corr = T_14O_reco_corr + Q0
+						- (T_10C + T_4He + T_d_total);
+
+					if (g_ctx.tafd_position.h_excitation_corrected)
+						g_ctx.tafd_position.h_excitation_corrected->Fill(
+							E_x_tafd_corr);
+				}
+			}
+		}
 
 		bool filled_14O_ex = false;
 
@@ -672,9 +1221,6 @@ static void FillFilteredAndAnalysis(TCutG *cut) {
 				TLorentzVector P_4He(p_4He * dx_4He / norm_4He,
 					p_4He * dy_4He / norm_4He,
 					p_4He * dz_4He / norm_4He, E_4He);
-
-				double m_14O = brill::GetMass(8, 14);
-				double m_d = brill::GetMass(1, 2);
 
 				double E_A = E_beam + m_14O;
 				double p_A_mag = std::sqrt(E_A * E_A - m_14O * m_14O);
@@ -998,6 +1544,12 @@ static void OnBeamChanged() {
 		DrawExcitationFixedHistogram();
 		DrawWindow6Histogram();
 	}
+
+	if (g_ctx.is_t1 && g_ctx.tafd_calib_loaded) {
+		DrawTafdHistogram();
+		DrawTafcsiPerChannelHistogram();
+		DrawTafdPositionHistogram();
+	}
 }
 
 static void OnBeamChanged();
@@ -1062,6 +1614,16 @@ void RebuildFromFile(const std::string &filepath) {
 	if (apply_run_filter) printf(" (skipped %d)", skipped);
 	printf("\n");
 
+	if (g_ctx.is_t1 && !g_ctx.tafd_calib_loaded) {
+		std::string calib_path = "calib_vme_alpha_0255.txt";
+		if (brill::ReadTafdCalibration(calib_path, g_ctx.tafd_calib) != 0) {
+			fprintf(stderr, "Warning: TAFD calibration load failed.\n");
+		} else {
+			g_ctx.tafd_calib_loaded = true;
+			printf("  TAFD calibration loaded.\n");
+		}
+	}
+
 	g_ctx.status_bar->SetText("Filling all histograms...");
 	gSystem->ProcessEvents();
 
@@ -1085,6 +1647,12 @@ void RebuildFromFile(const std::string &filepath) {
 		DrawExcitationHistogram();
 		DrawExcitationFixedHistogram();
 		DrawWindow6Histogram();
+	}
+
+if (g_ctx.is_t1 && g_ctx.tafd_calib_loaded) {
+		DrawTafdHistogram();
+		DrawTafcsiPerChannelHistogram();
+		DrawTafdPositionHistogram();
 	}
 
 	printf("  Done.\n");
@@ -1117,10 +1685,26 @@ int main(int argc, char **argv) {
 	const auto *det_d2 = brill::FindDetectorConfig(config, "t0d2");
 	const auto *det_d3 = brill::FindDetectorConfig(config, "t0d3");
 	const auto *det_d4 = brill::FindDetectorConfig(config, "t0d4");
+	const auto *det_s1 = brill::FindDetectorConfig(config, "t0s1");
 	if (det_d1) g_ctx.z_d1 = det_d1->z_mm;
 	if (det_d2) g_ctx.z_d2 = det_d2->z_mm;
 	if (det_d3) g_ctx.z_d3 = det_d3->z_mm;
 	if (det_d4) g_ctx.z_d4 = det_d4->z_mm;
+	if (det_d1 && det_d2 && det_d3 && det_d4) {
+		double s1_thickness = det_s1 ? det_s1->thickness_um : 1500.0;
+		g_ctx.total_Si_thickness_um = det_d1->thickness_um + det_d2->thickness_um
+			+ det_d3->thickness_um + det_d4->thickness_um + s1_thickness;
+		printf("Si total thickness: %.1f um (d1=%.1f, d2=%.1f, d3=%.1f, "
+			"d4=%.1f, s1=%.1f%s)\n",
+			g_ctx.total_Si_thickness_um,
+			det_d1->thickness_um, det_d2->thickness_um,
+			det_d3->thickness_um, det_d4->thickness_um,
+			s1_thickness,
+			det_s1 ? "" : " (hardcoded)");
+	} else {
+		g_ctx.total_Si_thickness_um = 0.0;
+		printf("WARNING: Missing detector config for Si thickness.\n");
+	}
 	printf("T0 Z positions: d1=%.1f d2=%.1f d3=%.1f d4=%.1f mm\n",
 		g_ctx.z_d1, g_ctx.z_d2, g_ctx.z_d3, g_ctx.z_d4);
 
@@ -1135,6 +1719,10 @@ int main(int argc, char **argv) {
 	gInterpreter->Declare(
 		TString::Format("volatile int &g_beam_filter = *((volatile int*)%lu);",
 			(unsigned long)&g_beam_filter).Data()
+	);
+	gInterpreter->Declare(
+		TString::Format("volatile int &g_he4_mode = *((volatile int*)%lu);",
+			(unsigned long)&g_he4_mode).Data()
 	);
 	gInterpreter->Declare(
 		TString::Format("volatile bool &g_beam_changed = *((volatile bool*)%lu);",
@@ -1181,6 +1769,23 @@ int main(int argc, char **argv) {
 	beam_frame->AddFrame(g_ctx.btn_14O, new TGLayoutHints(kLHintsCenterY, 4, 2, 2, 2));
 	beam_frame->AddFrame(g_ctx.btn_13N, new TGLayoutHints(kLHintsCenterY, 4, 2, 2, 2));
 	beam_frame->AddFrame(g_ctx.btn_12C, new TGLayoutHints(kLHintsCenterY, 4, 2, 2, 2));
+
+	TGLabel *he4_label = new TGLabel(beam_frame, "  4He:");
+	beam_frame->AddFrame(he4_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
+
+	TGButtonGroup *he4_group = new TGButtonGroup(beam_frame, "", kHorizontalFrame);
+
+	g_ctx.radio_he4_all = new TGRadioButton(he4_group, "All");
+	g_ctx.radio_he4_stop = new TGRadioButton(he4_group, "Stop");
+	g_ctx.radio_he4_tran = new TGRadioButton(he4_group, "Tran");
+
+	g_ctx.radio_he4_all->SetCommand("g_he4_mode = 0; g_beam_changed = true;");
+	g_ctx.radio_he4_stop->SetCommand("g_he4_mode = 1; g_beam_changed = true;");
+	g_ctx.radio_he4_tran->SetCommand("g_he4_mode = 2; g_beam_changed = true;");
+
+	g_ctx.radio_he4_all->SetState(kButtonDown);
+
+	beam_frame->AddFrame(he4_group, new TGLayoutHints(kLHintsCenterY, 4, 2, 2, 2));
 
 	TGLabel *run_label = new TGLabel(beam_frame, "  Run: ");
 	beam_frame->AddFrame(run_label, new TGLayoutHints(kLHintsCenterY, 10, 2, 2, 2));
@@ -1267,6 +1872,46 @@ int main(int argc, char **argv) {
 	g_ctx.ec.canvas = new TCanvas("canvas_excitation", "10C Excitation Energy (per-event E_beam)", 800, 600);
 	g_ctx.ec_fixed.canvas = new TCanvas("canvas_excitation_fixed", "10C Excitation Energy (per-run E0)", 800, 600);
 	g_ctx.w6.canvas = new TCanvas("canvas_window6", "Missing Mass + Inversion", 800, 600);
+	g_ctx.tafd.canvas = new TCanvas("canvas_tafd", "TAFD Response (t1)", 800, 600);
+	g_ctx.tafcsi_channels.canvas = new TCanvas("canvas_tafcsi_channels", "CsI vs TAFD (per channel)", 1200, 900);
+	g_ctx.tafd_position.canvas = new TCanvas("canvas_tafd_position", "D with PID", 800, 600);
+
+	{
+		constexpr double test_thickness_um = 150.0;
+		constexpr double test_deposited = 3.0;
+		TString cache_path = TString::Format(
+			"%s/si_z1_a2.root",
+			brill::JoinPath(config.workspace,
+				config.paths.energy_calculator).c_str());
+		brill::RangeEnergyCalculator calc_d_Si(
+			1, 2, brill::SiliconMaterial(), cache_path.Data());
+		auto loss_fr = [&](double er) {
+			double r = calc_d_Si.Range(er);
+			return calc_d_Si.Energy(r + test_thickness_um) - er;
+		};
+		double lo = 0.0, hi = 1.0;
+		while (loss_fr(hi) > test_deposited && hi < 1e6) hi *= 2.0;
+		for (int i = 0; i < 100; ++i) {
+			double mid = 0.5 * (lo + hi);
+			if (loss_fr(mid) > test_deposited) lo = mid;
+			else hi = mid;
+		}
+		double er = 0.5 * (lo + hi);
+		double e_after_Si = calc_d_Si.Energy(calc_d_Si.Range(er) + test_thickness_um);
+		printf("  [d Si check] %.0f um, deposited %.1f MeV -> after Si: %.2f MeV\n",
+			test_thickness_um, test_deposited, e_after_Si);
+
+		brill::TargetEnergyLoss tel(config, 1, 2);
+		try {
+			double unused;
+			double e_after_target = tel.IncidentEnergy(e_after_Si, 0.0,
+				brill::TargetType::kCD2, unused);
+			printf("  [d Si check] after target (CD2, 0 deg): %.2f MeV\n",
+				e_after_target);
+		} catch (...) {
+			printf("  [d Si check] target correction failed\n");
+		}
+	}
 
 	TGStatusBar *status_bar = new TGStatusBar(main_frame, 1, 1);
 	main_frame->AddFrame(status_bar, new TGLayoutHints(kLHintsBottom | kLHintsExpandX));

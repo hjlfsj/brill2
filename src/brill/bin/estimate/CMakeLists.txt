@@ -127,3 +127,14 @@ target_link_libraries(
 	ROOT::Hist
 	ROOT::Tree
 )
+
+add_executable(check_taf_pid check_taf_pid.cpp)
+target_link_libraries(
+	check_taf_pid
+	PRIVATE
+	config
+	C10He4_tafd
+	C10He4_tafcsi
+	ROOT::Graf
+	ROOT::Tree
+)

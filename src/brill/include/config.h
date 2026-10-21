@@ -68,6 +68,17 @@ struct StraightParticleConfig {
 	double range = 0.0;
 };
 
+struct TAFDConfig {
+	double z_mm = 135.0;
+	int num_rings = 16;
+	int num_pies = 8;
+	double inner_radius_mm = 32.6;
+	double outer_radius_mm = 135.1;
+	double center_distance_mm = 34.4;
+	double fan_angle_deg = 54.4;
+	std::vector<double> angles_deg;
+};
+
 struct StraightSliceConfig {
 	double A = 0.0;
 	double B = 0.0;
@@ -124,6 +135,7 @@ struct AppConfig {
 	CalibrationConfig calibration;
 	IdentifyConfig identify;
 	PpacConfig ppac;
+	TAFDConfig tafd;
 	std::map<std::string, SquareDetectorConfig> detectors;
 };
 
