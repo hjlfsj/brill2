@@ -303,6 +303,26 @@ target_link_libraries(
 	ROOT::Physics
 )
 
+add_executable(GUI_10C_4He_CH2 GUI_10C_4He_CH2.cpp)
+target_link_libraries(
+	GUI_10C_4He_CH2
+	PRIVATE
+	config
+	C10He4_event
+	C10He4_tafd
+	C10He4_tafcsi
+	energy_calculator
+	rebuild_physics
+	physics
+	lise_physics
+	ROOT::RIO
+	ROOT::Tree
+	ROOT::Hist
+	ROOT::Graf
+	ROOT::Gui
+	ROOT::Physics
+)
+
 add_executable(GUI_d_Li6 GUI_d_Li6.cpp)
 target_link_libraries(
 	GUI_d_Li6

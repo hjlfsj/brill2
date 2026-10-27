@@ -22,7 +22,8 @@
 | `extract_d_Li6` | d+6Li 事件提取 | `./extract_d_Li6 -r 57 -e 60 -t main` |
 | `GUI_d_Li6` | d+6Li 交互式可视化 | `./GUI_d_Li6 -c config.toml` |
 | `extract_10C_4He` | 10C+4He 事件提取 | `./extract_10C_4He -r 57 -e 70 -t main` |
-| `GUI_10C_4He` | 10C+4He 交互式可视化 | `./GUI_10C_4He -c config.toml` |
+| `GUI_10C_4He` | 10C+4He 交互式可视化 (CD2) | `./GUI_10C_4He -c config.toml` |
+| `GUI_10C_4He_CH2` | 10C+4He 交互式可视化 (CH2) | `./GUI_10C_4He_CH2 -c config.toml` |
 | `GUI_pid` | DSSD PID 可视化 (GUI) | `./GUI_pid -c config.toml` |
 
 ## d_6Li/
@@ -36,7 +37,8 @@
 | 程序 | 功能 | 用法示例 |
 |------|------|---------|
 | `extract_10C_4He` | 10C+4He 数据提取 | `./extract_10C_4He -r 57 -e 70 -t main [--d1_hit 1]` |
-| `GUI_10C_4He` | 10C+4He 交互式可视化 | `./GUI_10C_4He -c config.toml` |
+| `GUI_10C_4He` | 10C+4He 交互式可视化 (CD2 靶) | `./GUI_10C_4He -c config.toml` |
+| `GUI_10C_4He_CH2` | 10C+4He 交互式可视化 (CH2 靶) | `./GUI_10C_4He_CH2 -c config.toml` |
 
 ## estimate/
 

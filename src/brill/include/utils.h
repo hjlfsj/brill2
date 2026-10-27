@@ -17,6 +17,7 @@ namespace brill {
 inline std::string JoinPath(const std::string &left, const std::string &right) {
 	if (left.empty()) return right;
 	if (right.empty()) return left;
+	if (right.front() == '/') return right;
 	if (left.back() == '/') return left + right;
 	return left + "/" + right;
 }

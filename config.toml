@@ -1,12 +1,14 @@
-workspace = "/data/disk1/ribll2026_www_data"
+workspace = "/data/disk1/ribll2026_www_data"  
 trigger = "t1"
 jump_run = [63, 81, 86, 106, 112,124,125,126,154, 1096, 1101, 1103, 1104, 1105, 1138, 1140, 1141, 1145, 1147]
 assets = "assets"
 
 [paths]
-ore = "ore"
-grit = "grit"
-ingot = "ingot"
+# 使用绝对路径覆盖默认 workspace, run 159以后的文件存储在 disk5 上
+ore = "/data/disk5/ribll2026_www_data/ore"
+grit = "/data/disk5/ribll2026_www_data/grit"
+ingot = "/data/disk5/ribll2026_www_data/ingot"
+# 以下目录使用默认 workspace（/data/disk1/ribll2026_www_data）作为父目录
 normalize = "normalize"
 match = "match"
 track = "track"

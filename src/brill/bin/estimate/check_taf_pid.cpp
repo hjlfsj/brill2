@@ -119,20 +119,31 @@ int main(int argc, char **argv) {
 	TFile opf(output_path, "recreate");
 
 	constexpr int kNumChannels = 12;
-	TH2F* h_ch[kNumChannels];
+	TH2F* h_front_ch[kNumChannels];
 	for (int i = 0; i < kNumChannels; ++i) {
-		h_ch[i] = new TH2F(
-			TString::Format("h_ch%d", i),
-			TString::Format("CsI ch%d vs TAFD;CsI E (ch);TAFD calibrated E (MeV)", i),
+		h_front_ch[i] = new TH2F(
+			TString::Format("h_front_ch%d", i),
+			TString::Format("CsI ch%d vs TAFD front;CsI E (ch);TAFD front E (MeV)", i),
 			400, 0, 4000, 400, 0, 40);
 	}
-	TH2F* h_all = new TH2F("h_all",
-		"CsI vs TAFD (all channels);CsI E (ch);TAFD calibrated E (MeV)",
+	TH2F* h_front_all = new TH2F("h_front_all",
+		"CsI vs TAFD front (all channels);CsI E (ch);TAFD front E (MeV)",
+		400, 0, 4000, 400, 0, 40);
+
+	TH2F* h_back_ch[kNumChannels];
+	for (int i = 0; i < kNumChannels; ++i) {
+		h_back_ch[i] = new TH2F(
+			TString::Format("h_back_ch%d", i),
+			TString::Format("CsI ch%d vs TAFD back;CsI E (ch);TAFD back E (MeV)", i),
+			400, 0, 4000, 400, 0, 40);
+	}
+	TH2F* h_back_all = new TH2F("h_back_all",
+		"CsI vs TAFD back (all channels);CsI E (ch);TAFD back E (MeV)",
 		400, 0, 4000, 400, 0, 40);
 
 	const long long total = chain_tafd.GetEntries();
 	long long last_percentage = 0;
-	int matched = 0;
+	int matched_front = 0, matched_back = 0;
 	std::printf("Filling TAFD PID      0%%");
 	std::fflush(stdout);
 
@@ -145,51 +156,56 @@ int main(int argc, char **argv) {
 		}
 		chain_tafd.GetEntry(entry);
 
-		// Custom TAFD selection: no front/back consistency cut,
-		// no calib validity check. Use ring energy for TAFD 0-4,
-		// pie energy for TAFD5 (front damaged).
-		double best_e = -1e9;
-		int best_tafd = -1, best_ring = -1, best_pie = -1;
+		// --- Front (ring) energy pass ---
+		double best_fe = -1e9;
+		int best_f_tafd = -1;
 		for (int i = 0; i < 6; ++i) {
 			if (!tafd.valid[i]) continue;
 			int fs = tafd.front_strip[i];
-			int bs = tafd.back_strip[i];
 			if (fs < 0 || fs >= 16) continue;
-			if (bs < 0 || bs >= 8) continue;
-
-			double e;
-			if (i == 5) {
-				e = calib.back_k[i][bs] * tafd.back_energy[i]
-					+ calib.back_b[i][bs];
-			} else {
-				e = calib.front_k[i][fs] * tafd.front_energy[i]
-					+ calib.front_b[i][fs];
-			}
-			if (e > best_e) {
-				best_e = e;
-				best_tafd = i;
-				best_ring = fs;
-				best_pie = bs;
+			double e = calib.front_k[i][fs] * tafd.front_energy[i]
+				+ calib.front_b[i][fs];
+			if (e > best_fe) { best_fe = e; best_f_tafd = i; }
+		}
+		if (best_f_tafd >= 0) {
+			auto f_csi = brill::FindTafcsiTarget(csi, best_f_tafd);
+			if (f_csi.found && f_csi.channel >= 0 && f_csi.channel < kNumChannels) {
+				++matched_front;
+				h_front_ch[f_csi.channel]->Fill(f_csi.energy, best_fe);
+				h_front_all->Fill(f_csi.energy, best_fe);
 			}
 		}
-		if (best_tafd < 0) continue;
 
-		auto csi_target = brill::FindTafcsiTarget(csi, best_tafd);
-		if (!csi_target.found) continue;
-		if (csi_target.channel < 0 || csi_target.channel >= kNumChannels) continue;
-
-		++matched;
-		h_ch[csi_target.channel]->Fill(csi_target.energy, best_e);
-		h_all->Fill(csi_target.energy, best_e);
+		// --- Back (pie) energy pass ---
+		double best_be = -1e9;
+		int best_b_tafd = -1;
+		for (int i = 0; i < 6; ++i) {
+			if (!tafd.valid[i]) continue;
+			int bs = tafd.back_strip[i];
+			if (bs < 0 || bs >= 8) continue;
+			double e = calib.back_k[i][bs] * tafd.back_energy[i]
+				+ calib.back_b[i][bs];
+			if (e > best_be) { best_be = e; best_b_tafd = i; }
+		}
+		if (best_b_tafd >= 0) {
+			auto b_csi = brill::FindTafcsiTarget(csi, best_b_tafd);
+			if (b_csi.found && b_csi.channel >= 0 && b_csi.channel < kNumChannels) {
+				++matched_back;
+				h_back_ch[b_csi.channel]->Fill(b_csi.energy, best_be);
+				h_back_all->Fill(b_csi.energy, best_be);
+			}
+		}
 	}
 
 	std::printf("\b\b\b\b100%%\n");
-	std::printf("Total entries: %lld, matched: %d (%.1f%%)\n",
-		total, matched, total > 0 ? matched * 100.0 / total : 0.0);
+	std::printf("Total entries: %lld, front-matched: %d, back-matched: %d\n",
+		total, matched_front, matched_back);
 
 	opf.cd();
-	for (int i = 0; i < kNumChannels; ++i) h_ch[i]->Write();
-	h_all->Write();
+	for (int i = 0; i < kNumChannels; ++i) h_front_ch[i]->Write();
+	h_front_all->Write();
+	for (int i = 0; i < kNumChannels; ++i) h_back_ch[i]->Write();
+	h_back_all->Write();
 	opf.Close();
 
 	std::cout << "Output saved to " << output_path << "\n";
