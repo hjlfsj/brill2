@@ -195,3 +195,29 @@ calibrate_t0.cpp就维持原状吧。复用函数都只给v1使用
 - 运行结果：E = d2_e[0] + d3_e[0]
   1. 以10^n为单位，（默认为6），绘制十组 E的直方图TH1D，（1000，0，1000）,然后10组存进文件中，
   同时把10组绘制到一个canvas中，并保存下来
+
+
+
+
+
+我计划增加10C+4He的筛选范围，分为extract和GUI两个层级：
+extract层级：
+- 原来的条件为： d1_hit = d2_hit = d3_hit = 2, d4_hit = 1, 同时s1 valid。
+现在修改为两种条件：
+1. 和之前一样，但是不要求 s1 valid。（type = 0）
+2. 要求d1_hit = d2_hit = d3_hit = 2, d4_hit = 2，但是不要求s1 valid。
+  在这种情况下仍然对 D1/D2/D3/D4 的 hit 按能量降序排列，高能量 → 10C，低能量 → 4He,
+  然后判断(E4_10C, E3_10C) 必须落在 cal_d3_d4_10C_cut.C中 （type = 1）
+
+其他不变
+
+对于GUI层级：
+对于type = 0：
+- 若s1 valid，则说明4He抵达了s1层，则和之前保持一致，验证d4s_stop/tran两种cut
+- 若s1 invalid，则说明4He没有抵达s1层，则验证(E4_4He, E3_4He)是否在 cal_d3_d4_stop_4He_cut.C中
+
+对于type = 1：
+- 若s1 valid，则说明4He抵达了s1层，则和之前保持一致，验证d4s_stop/tran两种cut
+- 若s1 invalid，则说明4He没有抵达s1层，则验证(E4_4He, E3_4He)是否在 cal_d3_d4_stop_4He_cut.C中
+
+其他各项功能不变，提出你的理解，建议和疑问

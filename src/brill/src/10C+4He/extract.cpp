@@ -87,27 +87,41 @@ bool Pass10C_d3_4He_s1Cut(
 	const SiliconEvent &t0s,
 	const C10He4Calibration &calib,
 	TCutG *d2d3_cut,
-	int d1_hit
+	int d1_hit,
+	int type,
+	TCutG *d3d4_cut
 ) {
 	if (d1.num != d1_hit) return false;
 	if (d2.num != 2) return false;
 	if (d3.num != 2) return false;
-	if (d4.num != 1) return false;
 
-	DssdMatchEvent d1_sorted = d1;
-	DssdMatchEvent d2_sorted = d2;
-	DssdMatchEvent d3_sorted = d3;
-	SortHitsByEnergy(d1_sorted);
-	SortHitsByEnergy(d2_sorted);
-	SortHitsByEnergy(d3_sorted);
+	if (type == 0) {
+		if (d4.num != 1) return false;
 
-	if (d2d3_cut) {
-		double e3 = CalibrateC10He4Energy(calib, 2, d3_sorted.energy[0]);
-		double e2 = CalibrateC10He4Energy(calib, 1, d2_sorted.energy[0]);
-		if (!d2d3_cut->IsInside(e3, e2)) return false;
+		DssdMatchEvent d2_sorted = d2;
+		DssdMatchEvent d3_sorted = d3;
+		SortHitsByEnergy(d2_sorted);
+		SortHitsByEnergy(d3_sorted);
+
+		if (d2d3_cut) {
+			double e3 = CalibrateC10He4Energy(calib, 2, d3_sorted.energy[0]);
+			double e2 = CalibrateC10He4Energy(calib, 1, d2_sorted.energy[0]);
+			if (!d2d3_cut->IsInside(e3, e2)) return false;
+		}
+	} else {
+		if (d4.num != 2) return false;
+
+		DssdMatchEvent d3_sorted = d3;
+		DssdMatchEvent d4_sorted = d4;
+		SortHitsByEnergy(d3_sorted);
+		SortHitsByEnergy(d4_sorted);
+
+		if (d3d4_cut) {
+			double e4 = CalibrateC10He4Energy(calib, 3, d4_sorted.energy[0]);
+			double e3 = CalibrateC10He4Energy(calib, 2, d3_sorted.energy[0]);
+			if (!d3d4_cut->IsInside(e4, e3)) return false;
+		}
 	}
-
-	if (!t0s.valid) return false;
 
 	return true;
 }

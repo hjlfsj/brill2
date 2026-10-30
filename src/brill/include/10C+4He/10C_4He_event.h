@@ -7,16 +7,20 @@ namespace brill {
 struct C10He4Event {
 	int run_number = 0;
 	Long64_t entry = 0;
+	int event_type = 0;
 
 	double e1_10C = 0.0;
 	double e2_10C = 0.0;
 	double e3_10C = 0.0;
+	double e4_10C = 0.0;
 
 	double e1_4He = 0.0;
 	double e2_4He = 0.0;
 	double e3_4He = 0.0;
 	double e4_4He = 0.0;
 	double e5_4He = 0.0;
+
+	bool s1_valid = false;
 
 	bool is_14O = false;
 	bool is_13N = false;
@@ -39,6 +43,8 @@ struct C10He4Event {
 	double t0d1_10C_y = 0.0;
 	double t0d3_10C_x = 0.0;
 	double t0d3_10C_y = 0.0;
+	double t0d4_10C_x = 0.0;
+	double t0d4_10C_y = 0.0;
 	double t0d1_4He_x = 0.0;
 	double t0d1_4He_y = 0.0;
 	double t0d3_4He_x = 0.0;

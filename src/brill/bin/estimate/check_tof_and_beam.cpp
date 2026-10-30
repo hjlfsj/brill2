@@ -37,7 +37,32 @@ constexpr double k14OMass = 13044.84;
 constexpr double kLightSpeed = 299.792458;
 constexpr double kTofDistance = 17000.0;
 
-constexpr double kCD2TargetThicknessUm = 121.7;
+constexpr double kTargetDensity = 0.79867;
+
+enum class TargetType { CD2, CH2 };
+
+struct TargetConfig {
+	TargetType type;
+	double thickness_um;
+	const char *name;
+	const char *cache_suffix;
+};
+
+TargetConfig GetTargetConfig(int run) {
+	if (run >= 57 && run <= 156) {
+		return {TargetType::CD2, 121.7, "CD2", "cd2"};
+	} else if (run >= 159 && run <= 183) {
+		return {TargetType::CH2, 180.0, "CH2", "ch2"};
+	} else {
+		std::fprintf(
+			stderr,
+			"Warning: run %d outside known target ranges [57,156] and [159,183], "
+			"defaulting to CD2 121.7 um.\n",
+			run
+		);
+		return {TargetType::CD2, 121.7, "CD2", "cd2"};
+	}
+}
 
 struct CalibrationParameters {
 	double p0[kCalibrationLayers] = {0.0, 0.0, 0.0, 0.0, 0.0};
@@ -83,17 +108,26 @@ catima::Material CreateCD2Material() {
 	catima::Material material;
 	material.add_element(12.0, 6.0, 1.0);
 	material.add_element(2.0, 1.0, 2.0);
-	material.density(0.79867);
+	material.density(kTargetDensity);
+	return material;
+}
+
+catima::Material CreateCH2Material() {
+	catima::Material material;
+	material.add_element(12.0, 6.0, 1.0);
+	material.add_element(1.0, 1.0, 2.0);
+	material.density(kTargetDensity);
 	return material;
 }
 
 double CorrectBeamEnergy(
 	double E0,
-	brill::RangeEnergyCalculator &cd2_calc
+	brill::RangeEnergyCalculator &target_calc,
+	double target_thickness_um
 ) {
-	double range_cd2 = cd2_calc.Range(E0);
-	double range_at_target = range_cd2 + kCD2TargetThicknessUm;
-	return cd2_calc.Energy(range_at_target);
+	double range_target = target_calc.Range(E0);
+	double range_at_target = range_target + target_thickness_um;
+	return target_calc.Energy(range_at_target);
 }
 
 int OpenRunFiles(
@@ -335,13 +369,33 @@ int main(int argc, char **argv) {
 	std::printf("TOF distance: %.1f mm\n", tof_distance);
 	std::printf("14O mass: %.2f MeV/c^2\n", k14OMass);
 
+	const TargetConfig target_config = GetTargetConfig(run);
+	std::printf(
+		"Target: %s, thickness = %.1f um, density = %.5f g/cm^3\n",
+		target_config.name, target_config.thickness_um, kTargetDensity
+	);
+
 	const double mass = k14OMass;
 
 	const std::string cache_dir = brill::JoinPath(config.workspace, config.paths.energy_calculator);
-	TString cd2_cache_path = TString::Format("%s/target_z8_a14_cd2.root", cache_dir.c_str());
+	TString target_cache_path = TString::Format(
+		"%s/target_z8_a14_%s.root",
+		cache_dir.c_str(),
+		target_config.cache_suffix
+	);
 
-	brill::RangeEnergyCalculator cd2_calc(8, 14, CreateCD2Material(), cd2_cache_path.Data());
-	std::printf("Energy loss correction: CD2 target=%.1f um\n", kCD2TargetThicknessUm);
+	catima::Material target_material;
+	if (target_config.type == TargetType::CH2) {
+		target_material = CreateCH2Material();
+	} else {
+		target_material = CreateCD2Material();
+	}
+
+	brill::RangeEnergyCalculator target_calc(8, 14, target_material, target_cache_path.Data());
+	std::printf(
+		"Energy loss correction: %s target = %.1f um\n",
+		target_config.name, target_config.thickness_um
+	);
 
 	TH1D *h_beam_E = new TH1D("h_beam_E", "Beam Energy;E (MeV);Counts",
 		1000, 0.0, 1000.0);
@@ -402,7 +456,7 @@ int main(int argc, char **argv) {
 		if (!beam_event.valid || !v_14O) continue;
 
 		double E_meas = d1_cal_e + d2_cal_e + d3_cal_e;
-		double E = CorrectBeamEnergy(E_meas, cd2_calc);
+		double E = CorrectBeamEnergy(E_meas, target_calc, target_config.thickness_um);
 		double tof = beam_event.tof;
 
 		h_beam_E->Fill(E);

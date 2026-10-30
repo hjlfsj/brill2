@@ -189,6 +189,17 @@ struct TafdFileCache {
 
 static std::map<int, TafdFileCache> g_tafd_cache;
 
+struct TafdDiagnostics {
+	int calls = 0;
+	int entry_oob = 0;
+	int no_valid = 0;
+	int valid_but_no_match = 0;
+	int found = 0;
+	int n_valid[7] = {};
+	int one_face_only = 0;
+};
+static TafdDiagnostics g_tafd_diag;
+
 struct TafcsiFileCache {
 	TFile *file = nullptr;
 	TTree *tree = nullptr;
@@ -674,11 +685,12 @@ static void DrawTafdPositionHistogram() {
 }
 
 static brill::TafdTarget ReadTafdTarget(int run, Long64_t entry) {
+	g_tafd_diag.calls++;
 	auto &cache = g_tafd_cache[run];
 
 	if (!cache.tree) {
 		TString tafd_path = TString::Format("%s/tafd_t1_%04d.root",
-			brill::JoinPath(g_ctx.config.workspace, "ingot").c_str(), run);
+			brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.ingot).c_str(), run);
 		if (!std::filesystem::exists(tafd_path.Data())) {
 			fprintf(stderr, "Warning: TAFD file not found: %s\n", tafd_path.Data());
 			brill::TafdTarget t; return t;
@@ -693,6 +705,7 @@ static brill::TafdTarget ReadTafdTarget(int run, Long64_t entry) {
 	}
 
 	if (entry < 0 || entry >= cache.tree->GetEntries()) {
+		g_tafd_diag.entry_oob++;
 		brill::TafdTarget t; return t;
 	}
 
@@ -702,6 +715,22 @@ static brill::TafdTarget ReadTafdTarget(int run, Long64_t entry) {
 	auto &tafd = cache.event;
 	auto &calib = g_ctx.tafd_calib;
 	auto &tcfg = g_ctx.config.tafd;
+
+	int nv = 0;
+	for (int i = 0; i < 6; ++i) {
+		if (tafd.valid[i]) nv++;
+	}
+	g_tafd_diag.n_valid[nv]++;
+	if (nv == 0) g_tafd_diag.no_valid++;
+
+	bool has_one_face = false;
+	for (int i = 0; i < 6; ++i) {
+		if (tafd.valid[i]) continue;
+		bool fe = (tafd.front_energy[i] > 0.0);
+		bool be = (tafd.back_energy[i] > 0.0);
+		if (fe != be) { has_one_face = true; break; }
+	}
+	if (has_one_face) g_tafd_diag.one_face_only++;
 
 	for (int i = 0; i < 6; ++i) {
 		if (!tafd.valid[i]) continue;
@@ -726,8 +755,11 @@ static brill::TafdTarget ReadTafdTarget(int run, Long64_t entry) {
 	}
 
 	if (target.found) {
+		g_tafd_diag.found++;
 		brill::TAFDGetPosition(tcfg, target.tafd_index, target.ring, target.pie,
 			target.x, target.y, target.z);
+	} else {
+		if (nv > 0) g_tafd_diag.valid_but_no_match++;
 	}
 
 	return target;
@@ -738,7 +770,7 @@ static brill::TafcsiTarget ReadTafcsiTarget(int run, Long64_t entry, int tafd_in
 
 	if (!cache.tree) {
 		TString tafcsi_path = TString::Format("%s/tafcsi_t1_%04d.root",
-			brill::JoinPath(g_ctx.config.workspace, "ingot").c_str(), run);
+			brill::JoinPath(g_ctx.config.workspace, g_ctx.config.paths.ingot).c_str(), run);
 		if (!std::filesystem::exists(tafcsi_path.Data())) {
 			fprintf(stderr, "Warning: TAFCSI file not found: %s\n", tafcsi_path.Data());
 			brill::TafcsiTarget t; return t;
@@ -838,6 +870,7 @@ static bool PassTrackCut(const brill::C10He4Event &ev) {
 }
 
 static void FillFilteredAndAnalysis(TCutG *stop_cut) {
+	g_tafd_diag = TafdDiagnostics{};
 	RebuildFilteredHistograms();
 	RebuildAnalysisHistograms();
 
@@ -857,6 +890,13 @@ static void FillFilteredAndAnalysis(TCutG *stop_cut) {
 	TString tran_cut_path = "src/brill/Cut/cal_d4_s1_tran_4He_cut.C";
 	gROOT->ProcessLine(TString::Format(".x %s", tran_cut_path.Data()));
 	TCutG *tran_cut = (TCutG*)gROOT->FindObject("cal_d4_s1_tran_4He_cut");
+
+	TString d3d4_stop_path = "src/brill/Cut/cal_d3_d4_stop_4He_cut.C";
+	gROOT->ProcessLine(TString::Format(".x %s", d3d4_stop_path.Data()));
+	TCutG *d3d4_stop_cut = (TCutG*)gROOT->FindObject("cal_d3_d4_stop_4He_cut");
+	if (!d3d4_stop_cut) {
+		std::cerr << "Warning: Load d3d4_stop cut failed, s1-invalid events will be skipped.\n";
+	}
 
 	static std::unique_ptr<brill::RangeEnergyCalculator> s_calc_4He_Si;
 	static bool s_si_init = false;
@@ -907,14 +947,23 @@ static void FillFilteredAndAnalysis(TCutG *stop_cut) {
 
 		const auto &ev = g_ctx.all_events[i];
 
-		bool in_stop = stop_cut->IsInside(ev.e5_4He, ev.e4_4He);
-		bool in_tran = (tran_cut != nullptr) && tran_cut->IsInside(ev.e5_4He, ev.e4_4He);
+		bool in_stop = false;
+		bool in_tran = false;
+		bool pass_he4 = false;
+		if (ev.s1_valid) {
+			in_stop = stop_cut->IsInside(ev.e5_4He, ev.e4_4He);
+			in_tran = (tran_cut != nullptr) && tran_cut->IsInside(ev.e5_4He, ev.e4_4He);
 
-		if (in_stop && in_tran) in_tran = false;
+			if (in_stop && in_tran) in_tran = false;
 
-		bool pass_he4 = (g_he4_mode == 0) ? (in_stop || in_tran)
-			: (g_he4_mode == 1) ? in_stop
-			: (g_he4_mode == 2) ? in_tran : false;
+			pass_he4 = (g_he4_mode == 0) ? (in_stop || in_tran)
+				: (g_he4_mode == 1) ? in_stop
+				: (g_he4_mode == 2) ? in_tran : false;
+		} else {
+			if (d3d4_stop_cut) {
+				pass_he4 = d3d4_stop_cut->IsInside(ev.e4_4He, ev.e3_4He);
+			}
+		}
 		if (!pass_he4) continue;
 
 		if (!PassBeamFilter(ev)) continue;
@@ -1365,6 +1414,23 @@ static void FillFilteredAndAnalysis(TCutG *stop_cut) {
 		TString::Format("Beam=%s%s: %d passed, %d analyzed. File: %s",
 			BeamLabel(), g_is_track ? "+Track" : "",
 			passed, analyzed, g_ctx.current_file.c_str()));
+
+	if (g_tafd_diag.calls > 0) {
+		printf("  TAFD diagnostics: calls=%d, oob=%d, found=%d, missed=%d\n",
+			g_tafd_diag.calls, g_tafd_diag.entry_oob,
+			g_tafd_diag.found,
+			g_tafd_diag.calls - g_tafd_diag.found - g_tafd_diag.entry_oob);
+		printf("  TAFD valid[6] distribution (how many sectors valid=true):\n");
+		for (int v = 0; v <= 6; ++v) {
+			if (g_tafd_diag.n_valid[v] > 0)
+				printf("    %d valid: %d (%.1f%%)\n", v,
+					g_tafd_diag.n_valid[v],
+					100.0 * g_tafd_diag.n_valid[v] / g_tafd_diag.calls);
+		}
+		printf("  TAFD no_valid=%d, valid_but_no_match=%d, one_face_only=%d\n",
+			g_tafd_diag.no_valid, g_tafd_diag.valid_but_no_match,
+			g_tafd_diag.one_face_only);
+	}
 }
 
 static void DrawBeamHistograms() {

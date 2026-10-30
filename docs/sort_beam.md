@@ -19,32 +19,47 @@
 sort_beam -r 57 -t t1
 ```
 
-## 4. 输入文件
+## 4. 工作流
+
+`sort_beam` 与 `check_tof_and_beam` 存在相互依赖关系：
+
+- `sort_beam` 负责 TOF 寻峰和粒子 PID 分类（14O/13N/12C），输出 sorted beam 文件
+- `check_tof_and_beam` 读取 sorted beam 文件中的 `v_14O` 标记筛选 14O 事件，通过相对论运动学计算 TOF 测量偏置 $\Delta t$，输出 `check_tof_and_beam_<run>.txt`
+- `sort_beam` 再次运行时读取 $\Delta t$，为 14O 事件计算准确的束流能量 $E$
+
+**执行顺序**：先运行 `check_tof_and_beam`，再运行 `sort_beam` 即可。
+
+对于**首次处理**一个 run（尚无 sorted beam 文件）：
+1. 先跑一次 `sort_beam`（此时无 $\Delta t$，仅产出 PID 分类，$E = -1$）
+2. 跑 `check_tof_and_beam`（利用 PID 结果做相对论校准，得到 $\Delta t$）
+3. 再跑一次 `sort_beam`（此时有 $\Delta t$，正确计算 14O 能量）
+
+## 5. 输入文件
 
 | 文件 | 来源 | 内容 |
 |------|------|------|
 | `ingot/beam_<trigger>_<run>.root` | forge beam | `BeamEvent` |
 
-## 5. 输出文件
+## 6. 输出文件
 
 - 文件名：`beam_<trigger>_<run>.root`
 - 保存路径：`beam/` 目录
 
-## 6. 输出内容
+## 7. 输出内容
 
-### 6.1 TH1D
+### 7.1 TH1D
 
 | 名称 | 内容 |
 |------|------|
 | `h_tof` | TOF 直方图（5000 bins, -500~500 ns），含高斯拟合曲线和标注 |
 
-### 6.2 TCanvas
+### 7.2 TCanvas
 
 | 名称 | 内容 |
 |------|------|
 | `c1` | TOF 直方图 + 峰区竖线 + 粒子标注，用于可视化检查 |
 
-### 6.3 TTree
+### 7.3 TTree
 
 | Branch | 类型 | 含义 |
 |--------|------|------|
@@ -63,7 +78,7 @@ $$
 
 其中 $m = 13044.84\ \mathrm{MeV}/c^2$, $L = 17000\ \mathrm{mm}$, $c = 299.792458\ \mathrm{mm/ns}$。若 txt 文件不存在，打印警告且所有事件的 `E = -1`。
 
-## 7. 算法流程
+## 8. 算法流程
 
 1. 读取单个 run 的 `beam_<trigger>_<run>.root`，用 `tree->Draw("tof>>h", "valid")` 生成 TOF 直方图
 2. 用 `TSpectrum` 寻峰，取高度最高的 3 个峰，按 x 位置从左到右排序
@@ -78,18 +93,18 @@ $$
    - 文字标注：14O、13N、12C
 7. 遍历同一 run 的所有事件，对每个事件判断 TOF 落在哪个区间，填入对应的 bool 变量
 
-## 8. 库文件
+## 9. 库文件
 
 束流排序的核心逻辑已提取为独立库，供后续程序调用。
 
-### 8.1 文件结构
+### 9.1 文件结构
 
 | 文件 | 用途 |
 |------|------|
 | `include/event/beam/beam_sort.h` | 头文件：`BeamSortResult` 结构体、函数声明 |
 | `src/event/beam/beam_sort.cpp` | 源文件：函数实现 |
 
-### 8.2 数据结构
+### 9.2 数据结构
 
 ```cpp
 struct BeamSortResult {
@@ -99,7 +114,7 @@ struct BeamSortResult {
 };
 ```
 
-### 8.3 API
+### 9.3 API
 
 | 函数 | 返回值 | 说明 |
 |------|--------|------|
@@ -108,7 +123,7 @@ struct BeamSortResult {
 | `SetupOutputSortBeamTree(TTree *tree, bool &v_14O, bool &v_13N, bool &v_12C)` | `void` | 创建输出 TTree 的三个 branch |
 | `ClassifyBeam(double tof, bool valid, const BeamSortResult &result, bool &v_14O, bool &v_13N, bool &v_12C)` | `void` | 分类单个事件，三值互斥 |
 
-### 8.4 调用示例
+### 9.4 调用示例
 
 ```cpp
 #include "include/event/beam/beam_sort.h"

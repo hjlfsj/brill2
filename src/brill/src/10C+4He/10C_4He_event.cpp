@@ -5,14 +5,17 @@ namespace brill {
 void SetupInputC10He4(TTree *tree, C10He4Event &event) {
 	tree->SetBranchAddress("run_number", &event.run_number);
 	tree->SetBranchAddress("entry", &event.entry);
+	tree->SetBranchAddress("event_type", &event.event_type);
 	tree->SetBranchAddress("e1_10C", &event.e1_10C);
 	tree->SetBranchAddress("e2_10C", &event.e2_10C);
 	tree->SetBranchAddress("e3_10C", &event.e3_10C);
+	tree->SetBranchAddress("e4_10C", &event.e4_10C);
 	tree->SetBranchAddress("e1_4He", &event.e1_4He);
 	tree->SetBranchAddress("e2_4He", &event.e2_4He);
 	tree->SetBranchAddress("e3_4He", &event.e3_4He);
 	tree->SetBranchAddress("e4_4He", &event.e4_4He);
 	tree->SetBranchAddress("e5_4He", &event.e5_4He);
+	tree->SetBranchAddress("s1_valid", &event.s1_valid);
 	tree->SetBranchAddress("is_14O", &event.is_14O);
 	tree->SetBranchAddress("is_13N", &event.is_13N);
 	tree->SetBranchAddress("is_12C", &event.is_12C);
@@ -31,6 +34,8 @@ void SetupInputC10He4(TTree *tree, C10He4Event &event) {
 	tree->SetBranchAddress("t0d1_10C_y", &event.t0d1_10C_y);
 	tree->SetBranchAddress("t0d3_10C_x", &event.t0d3_10C_x);
 	tree->SetBranchAddress("t0d3_10C_y", &event.t0d3_10C_y);
+	tree->SetBranchAddress("t0d4_10C_x", &event.t0d4_10C_x);
+	tree->SetBranchAddress("t0d4_10C_y", &event.t0d4_10C_y);
 	tree->SetBranchAddress("t0d1_4He_x", &event.t0d1_4He_x);
 	tree->SetBranchAddress("t0d1_4He_y", &event.t0d1_4He_y);
 	tree->SetBranchAddress("t0d3_4He_x", &event.t0d3_4He_x);
@@ -46,15 +51,18 @@ void SetupInputC10He4(TTree *tree, C10He4Event &event) {
 
 void SetupOutputC10He4(TTree *tree, C10He4Event &event) {
 	tree->Branch("run_number", &event.run_number, "run_number/I");
+	tree->Branch("event_type", &event.event_type, "event_type/I");
 	tree->Branch("entry", &event.entry, "entry/L");
 	tree->Branch("e1_10C", &event.e1_10C, "e1_10C/D");
 	tree->Branch("e2_10C", &event.e2_10C, "e2_10C/D");
 	tree->Branch("e3_10C", &event.e3_10C, "e3_10C/D");
+	tree->Branch("e4_10C", &event.e4_10C, "e4_10C/D");
 	tree->Branch("e1_4He", &event.e1_4He, "e1_4He/D");
 	tree->Branch("e2_4He", &event.e2_4He, "e2_4He/D");
 	tree->Branch("e3_4He", &event.e3_4He, "e3_4He/D");
 	tree->Branch("e4_4He", &event.e4_4He, "e4_4He/D");
 	tree->Branch("e5_4He", &event.e5_4He, "e5_4He/D");
+	tree->Branch("s1_valid", &event.s1_valid, "s1_valid/O");
 	tree->Branch("is_14O", &event.is_14O, "is_14O/O");
 	tree->Branch("is_13N", &event.is_13N, "is_13N/O");
 	tree->Branch("is_12C", &event.is_12C, "is_12C/O");
@@ -73,6 +81,8 @@ void SetupOutputC10He4(TTree *tree, C10He4Event &event) {
 	tree->Branch("t0d1_10C_y", &event.t0d1_10C_y, "t0d1_10C_y/D");
 	tree->Branch("t0d3_10C_x", &event.t0d3_10C_x, "t0d3_10C_x/D");
 	tree->Branch("t0d3_10C_y", &event.t0d3_10C_y, "t0d3_10C_y/D");
+	tree->Branch("t0d4_10C_x", &event.t0d4_10C_x, "t0d4_10C_x/D");
+	tree->Branch("t0d4_10C_y", &event.t0d4_10C_y, "t0d4_10C_y/D");
 	tree->Branch("t0d1_4He_x", &event.t0d1_4He_x, "t0d1_4He_x/D");
 	tree->Branch("t0d1_4He_y", &event.t0d1_4He_y, "t0d1_4He_y/D");
 	tree->Branch("t0d3_4He_x", &event.t0d3_4He_x, "t0d3_4He_x/D");

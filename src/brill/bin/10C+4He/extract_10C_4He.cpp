@@ -63,14 +63,29 @@ int main(int argc, char **argv) {
 	std::string ingot_dir = brill::JoinPath(config.workspace, config.paths.ingot);
 	std::string output_dir = brill::JoinPath(config.workspace, config.paths.c10_he4);
 
-	TString cut_d2d3_path = "/home/ribll2026/ribll2026_www/github_code/brill2/src/brill/Cut/cal_d2_d3_stop_10C_cut.C";
-	gROOT->ProcessLine(TString::Format(".x %s", cut_d2d3_path.Data()));
-	TCutG *d2d3_cut = (TCutG*)gROOT->FindObject("cal_d2_d3_stop_10C_cut");
-	if (!d2d3_cut) {
-		std::cerr << "Error: Load TCutG from " << cut_d2d3_path << " failed.\n";
-		return 1;
+	TCutG *d2d3_cut = nullptr;
+	TCutG *d3d4_cut = nullptr;
+
+	{
+		TString cut_d2d3_path = "/home/ribll2026/ribll2026_www/github_code/brill2/src/brill/Cut/cal_d2_d3_stop_10C_cut.C";
+		gROOT->ProcessLine(TString::Format(".x %s", cut_d2d3_path.Data()));
+		d2d3_cut = (TCutG*)gROOT->FindObject("cal_d2_d3_stop_10C_cut");
+		if (!d2d3_cut) {
+			std::cerr << "Error: Load TCutG from " << cut_d2d3_path << " failed.\n";
+			return 1;
+		}
+		printf("Cut loaded: %s\n", cut_d2d3_path.Data());
 	}
-	printf("Cut loaded: %s\n", cut_d2d3_path.Data());
+	{
+		TString cut_d3d4_path = "/home/ribll2026/ribll2026_www/github_code/brill2/src/brill/Cut/cal_d3_d4_10C_cut.C";
+		gROOT->ProcessLine(TString::Format(".x %s", cut_d3d4_path.Data()));
+		d3d4_cut = (TCutG*)gROOT->FindObject("cal_d3_d4_10C_cut");
+		if (!d3d4_cut) {
+			std::cerr << "Error: Load TCutG from " << cut_d3d4_path << " failed.\n";
+			return 1;
+		}
+		printf("Cut loaded: %s\n", cut_d3d4_path.Data());
+	}
 
 	std::string trigger_infix = brill::TriggerInfix(trigger);
 
@@ -90,11 +105,13 @@ int main(int argc, char **argv) {
 
 	TH2D *h_e1_10C_e2_10C = new TH2D("h_e1_10C_e2_10C", "E1_10C vs E2_10C;E2_10C (MeV);E1_10C (MeV)", 1000, 0, 400, 1000, 0, 25);
 	TH2D *h_e2_10C_e3_10C = new TH2D("h_e2_10C_e3_10C", "E2_10C vs E3_10C;E3_10C (MeV);E2_10C (MeV)", 1000, 0, 350, 1000, 0, 400);
+	TH2D *h_e3_10C_e4_10C = new TH2D("h_e3_10C_e4_10C", "E3_10C vs E4_10C;E4_10C (MeV);E3_10C (MeV)", 1000, 0, 250, 1000, 0, 300);
 
 	TH2D *h_e1_4He_e2_4He = new TH2D("h_e1_4He_e2_4He", "E1_4He vs E2_4He;E2_4He (MeV);E1_4He (MeV)", 1000, 0, 400, 1000, 0, 25);
 	TH2D *h_e2_4He_e3_4He = new TH2D("h_e2_4He_e3_4He", "E2_4He vs E3_4He;E3_4He (MeV);E2_4He (MeV)", 1000, 0, 350, 1000, 0, 400);
 	TH2D *h_e3_4He_e4_4He = new TH2D("h_e3_4He_e4_4He", "E3_4He vs E4_4He;E4_4He (MeV);E3_4He (MeV)", 1000, 0, 250, 1000, 0, 300);
 	TH2D *h_e4_4He_e5_4He = new TH2D("h_e4_4He_e5_4He", "E4_4He vs E5_4He;E5_4He (MeV);E4_4He (MeV)", 1000, 0, 250, 1000, 0, 250);
+	TH1D *h_entry_multi = new TH1D("h_entry_multi", "Entry multiplicity per run;Run number;Entries", 500, 0, 500);
 
 	for (int run = run_start; run <= run_end; ++run) {
 		if (brill::IsJumpRun(config, run)) {
@@ -233,7 +250,13 @@ int main(int argc, char **argv) {
 			if (beam_tree) beam_tree->GetEntry(i);
 			if (ppac_tree) ppac_tree->GetEntry(i);
 
-			if (!brill::Pass10C_d3_4He_s1Cut(d1_event, d2_event, d3_event, d4_event, t0s_event, calib, d2d3_cut, d1_hit)) continue;
+			int event_type = -1;
+			if (brill::Pass10C_d3_4He_s1Cut(d1_event, d2_event, d3_event, d4_event, t0s_event, calib, d2d3_cut, d1_hit, 0, nullptr)) {
+				event_type = 0;
+			} else if (brill::Pass10C_d3_4He_s1Cut(d1_event, d2_event, d3_event, d4_event, t0s_event, calib, nullptr, d1_hit, 1, d3d4_cut)) {
+				event_type = 1;
+			}
+			if (event_type < 0) continue;
 
 			int idx_10C_d1 = 0;
 			int idx_4He_d1 = 1;
@@ -257,26 +280,40 @@ int main(int argc, char **argv) {
 				idx_4He_d3 = 0;
 			}
 
+			int idx_10C_d4 = 0;
+			int idx_4He_d4 = 0;
+			if (event_type == 1) {
+				idx_4He_d4 = 1;
+				if (d4_event.energy[1] > d4_event.energy[0]) {
+					idx_10C_d4 = 1;
+					idx_4He_d4 = 0;
+				}
+			}
+
 			double e1_10C = brill::CalibrateC10He4Energy(calib, 0, d1_event.energy[idx_10C_d1]);
 			double e2_10C = brill::CalibrateC10He4Energy(calib, 1, d2_event.energy[idx_10C_d2]);
 			double e3_10C = brill::CalibrateC10He4Energy(calib, 2, d3_event.energy[idx_10C_d3]);
+			double e4_10C = (event_type == 1) ? brill::CalibrateC10He4Energy(calib, 3, d4_event.energy[idx_10C_d4]) : 0.0;
 
 			double e1_4He = (d1_hit == 2) ? brill::CalibrateC10He4Energy(calib, 0, d1_event.energy[idx_4He_d1]) : 0.0;
 			double e2_4He = brill::CalibrateC10He4Energy(calib, 1, d2_event.energy[idx_4He_d2]);
 			double e3_4He = brill::CalibrateC10He4Energy(calib, 2, d3_event.energy[idx_4He_d3]);
-			double e4_4He = brill::CalibrateC10He4Energy(calib, 3, d4_event.energy[0]);
+			double e4_4He = brill::CalibrateC10He4Energy(calib, 3, d4_event.energy[idx_4He_d4]);
 			double e5_4He = brill::CalibrateC10He4Energy(calib, 4, t0s_event.energy);
 
 			out_event.run_number = run;
 			out_event.entry = i;
+			out_event.event_type = event_type;
 			out_event.e1_10C = e1_10C;
 			out_event.e2_10C = e2_10C;
 			out_event.e3_10C = e3_10C;
+			out_event.e4_10C = e4_10C;
 			out_event.e1_4He = e1_4He;
 			out_event.e2_4He = e2_4He;
 			out_event.e3_4He = e3_4He;
 			out_event.e4_4He = e4_4He;
 			out_event.e5_4He = e5_4He;
+			out_event.s1_valid = t0s_event.valid;
 			out_event.is_14O = beam_is_14O;
 			out_event.is_13N = beam_is_13N;
 			out_event.is_12C = beam_is_12C;
@@ -296,12 +333,14 @@ int main(int argc, char **argv) {
 			out_event.t0d1_10C_y = d1_event.y[idx_10C_d1];
 			out_event.t0d3_10C_x = d3_event.x[idx_10C_d3];
 			out_event.t0d3_10C_y = d3_event.y[idx_10C_d3];
+			out_event.t0d4_10C_x = (event_type == 1) ? d4_event.x[idx_10C_d4] : 0.0;
+			out_event.t0d4_10C_y = (event_type == 1) ? d4_event.y[idx_10C_d4] : 0.0;
 			out_event.t0d1_4He_x = (d1_hit == 2) ? d1_event.x[idx_4He_d1] : 0.0;
 			out_event.t0d1_4He_y = (d1_hit == 2) ? d1_event.y[idx_4He_d1] : 0.0;
 			out_event.t0d3_4He_x = d3_event.x[idx_4He_d3];
 			out_event.t0d3_4He_y = d3_event.y[idx_4He_d3];
-			out_event.t0d4_4He_x = d4_event.x[0];
-			out_event.t0d4_4He_y = d4_event.y[0];
+			out_event.t0d4_4He_x = d4_event.x[idx_4He_d4];
+			out_event.t0d4_4He_y = d4_event.y[idx_4He_d4];
 
 			const double target_z = 0.0;
 			if (ppac_event.valid) {
@@ -335,6 +374,7 @@ int main(int argc, char **argv) {
 
 			h_e1_10C_e2_10C->Fill(e2_10C, e1_10C);
 			h_e2_10C_e3_10C->Fill(e3_10C, e2_10C);
+			h_e3_10C_e4_10C->Fill(e4_10C, e3_10C);
 
 			h_e1_4He_e2_4He->Fill(e2_4He, e1_4He);
 			h_e2_4He_e3_4He->Fill(e3_4He, e2_4He);
@@ -356,13 +396,15 @@ int main(int argc, char **argv) {
 	output_tree->Write();
 	h_e1_10C_e2_10C->Write();
 	h_e2_10C_e3_10C->Write();
+	h_e3_10C_e4_10C->Write();
+
 	h_e1_4He_e2_4He->Write();
 	h_e2_4He_e3_4He->Write();
 	h_e3_4He_e4_4He->Write();
 	h_e4_4He_e5_4He->Write();
 
-	output_file->Close();
+	h_entry_multi->Write();
 
-	printf("Output written to %s\n", output_path.Data());
+	output_file->Close();	printf("Output written to %s\n", output_path.Data());
 	return 0;
 }

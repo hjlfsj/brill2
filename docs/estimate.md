@@ -199,6 +199,18 @@ ingot/ (原始数据)
     ├── estimate_normalize ──────────→ estimate/ (归一化能量)
     ├── estimate_normalize_total_energy → estimate/ (归一化总能量)
     │
+    ├── sort_beam ───────────────────→ beam/ (PID 分类, E=-1 或含 Δt 后 E 有效)
+    │       │
+    │       └── (提供 v_14O 标记)
+    │               │
+    │               ▼
+    │       check_tof_and_beam ──────→ beam/ (Δ t 参数文件)
+    │               │
+    │               └── (提供 Δ t)
+    │                       │
+    │                       ▼
+    │               sort_beam (再次) ─→ beam/ (PID + 能量 E 完整)
+    │
 match/ (DSSD匹配后)
     │
     ├── estimate_t0_pid ─────────────→ estimate/ (PID 直方图)
@@ -209,6 +221,8 @@ ingot/ (硅 + CsI)
     │
     └── estimate_t0_csi_pid ─────────→ estimate/ (CsI PID 直方图)
 ```
+
+> **注意**：`sort_beam` 与 `check_tof_and_beam` 相互依赖。`check_tof_and_beam` 读取 `sort_beam` 输出的 `v_14O` 标记来筛选 14O 事件；`sort_beam` 读取 `check_tof_and_beam` 输出的 $\Delta t$ 来计算束流能量。执行顺序为：先 `sort_beam`（初次）→ `check_tof_and_beam` → `sort_beam`（再次）。日常使用中，先运行 `check_tof_and_beam` 再运行 `sort_beam` 即可。
 
 ---
 
@@ -319,19 +333,20 @@ $$
 
 d1+d2+d3 沉积能量 $E_{\text{meas}} = E_{\text{cal},0} + E_{\text{cal},1} + E_{\text{cal},2}$。
 
-束流实际路径为：**CD₂靶 (121.7μm)** → **d1 (68μm Si)** → d2 → d3。d1、d2、d3 三层均已实测能量，因此 $E_{\text{meas}}$ 近似为 d1 入射面（即 CD₂-Si 界面）处的动能。只需补全 CD₂ 靶中的能损，即可得到入射束流动能 $E$。
+束流实际路径为：**靶** → **d1 (68μm Si)** → d2 → d3。d1、d2、d3 三层均已实测能量，因此 $E_{\text{meas}}$ 近似为 d1 入射面（即靶-Si 界面）处的动能。只需补全靶中的能损，即可得到入射束流动能 $E$。
 
-使用 catima 库构建 CD₂ 材料的 `RangeEnergyCalculator`（14O, Z=8, A=14）：
+使用 catima 库构建靶材料的 `RangeEnergyCalculator`（14O, Z=8, A=14）：
 
 $$
-R_{\text{CD}_2}(E_{\text{meas}}) \xrightarrow{+121.7\ \mu\text{m}} R_{\text{target}} \xrightarrow{\text{Energy}} E
+R_{\text{target}}(E_{\text{meas}}) \xrightarrow{+d_{\text{target}}\ \mu\text{m}} R_{\text{total}} \xrightarrow{\text{Energy}} E
 $$
 
-其中 CD₂ 材料参数：(C: Z=6, A=12, stoi=1) + (D: Z=1, A=2, stoi=2)，密度 $0.79867\ \mathrm{g/cm^3}$。
+靶的类型根据 run 号自动选择，密度均为 $0.79867\ \mathrm{g/cm^3}$。
 
-| 介质 | 厚度 (μm) | 材料 |
-|------|-----------|------|
-| CD₂ 靶 | 121.7 | $(^{12}\text{C}^2\text{H}_2)_n$ |
+| run 范围 | 靶类型 | 厚度 (μm) | 材料组成 |
+|----------|--------|-----------|----------|
+| 57–156 | CD₂ | 121.7 | $^{12}\mathrm{C}$$^{2}\mathrm{H}_2$ (C: Z=6, A=12, stoi=1; D: Z=1, A=2, stoi=2) |
+| 159–183 | CH₂ | 180.0 | $^{12}\mathrm{C}$$^{1}\mathrm{H}_2$ (C: Z=6, A=12, stoi=1; H: Z=1, A=1, stoi=2) |
 
 ---
 

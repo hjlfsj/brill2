@@ -34,7 +34,9 @@ bool Pass10C_d3_4He_s1Cut(
 	const SiliconEvent &t0s,
 	const C10He4Calibration &calib,
 	TCutG *d2d3_cut = nullptr,
-	int d1_hit = 2
+	int d1_hit = 2,
+	int type = 0,
+	TCutG *d3d4_cut = nullptr
 );
 
 } // namespace brill
